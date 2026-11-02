@@ -141,7 +141,13 @@ $env:PYTHONUNBUFFERED = '1'
 .\.venv\Scripts\python.exe -c "from th06ai.config import load_config; from th06ai.native import GameReader; from dataclasses import asdict; import json; r=GameReader(load_config().game_path); f=r.read(); print(json.dumps({'game_sha256':r.identity['sha256'],'resources':asdict(f.resources) if f.resources else None},ensure_ascii=False)); r.close()"
 ```
 
-操作者核对游戏显示的 Power、B 和残机，记录实际证据。确认前的本机文件可使用：
+操作者核对游戏显示的 Power、B 和残机，记录实际证据。在**项目根目录**创建 `native_resources_calibration.json`，使用 UTF-8 编码；可用记事本打开：
+
+```powershell
+notepad .\native_resources_calibration.json
+```
+
+将下列模板保存到该文件，并把 `game_sha256` 替换为刚才只读输出中的完整真实哈希。保留 `operator_confirmed: false`，直到完成实际核对：
 
 ```json
 {
@@ -150,7 +156,7 @@ $env:PYTHONUNBUFFERED = '1'
 }
 ```
 
-只有人工核对成功后才将它改为 true，并建议记录核对时间及实际读数。不要用脚本自动把 true 写进去，不要把这份本机凭据提交到 Git。完善正式资源确认交互是发布前已知待办，而不是通过注释掉检查来解决。
+只有人工核对成功后才将它改为 true，并建议记录核对时间及实际读数。文件名必须是 `native_resources_calibration.json`，不要保存成 `.json.txt`；占位哈希或仅有 true 的文件都不能代替真实确认。不要用脚本自动把 true 写进去，不要把这份本机凭据提交到 Git。完善正式资源确认交互是发布前已知待办，而不是通过注释掉检查来解决。
 
 ## 4. 开发服务与端口
 
