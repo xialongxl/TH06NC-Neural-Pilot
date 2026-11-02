@@ -13,7 +13,7 @@
 | Python 包管理 | 安装脚本要求 `uv`；不自动修改全局 Python 环境 |
 | 前端开发 | Node.js/npm；构建脚本提示 Node 22.12+ 或 24 LTS；已构建运行无需 Node 服务 |
 | 原生构建 | 可选 Rust + MSVC Build Tools；PyO3 固定 0.30.1，使用 Cargo.lock |
-| 游戏 | 用户自行安装本版 Steam 游戏，具体身份见 README |
+| 游戏 | 用户自行购买并安装本版 Steam 游戏，具体身份见 README |
 
 `device=cpu` 是显式的网络设备选择，不是无 NVIDIA 环境的完整运行模式：普通实机会话仍经过 NVML 独立保护。离线 CPU 单元测试则使用夹具，不要求接入真实游戏。
 
