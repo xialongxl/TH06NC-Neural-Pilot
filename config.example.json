@@ -1,0 +1,25 @@
+{
+  "game_exe": "C:\\Games\\SteamLibrary\\steamapps\\common\\th06nc\\th06nc.exe",
+  "gpu_index": 0,
+  "minutes": 60,
+  "episode_seconds": 0,
+  "device": "cuda",
+  "input_backend": "auto",
+  "inference_backend": "auto",
+  "goal": "survival",
+  "safety": {
+    "temperature_limit_c": 70,
+    "memory_temperature_limit_c": 80,
+    "vram_fraction_limit": 0.9,
+    "power_limit_ratio": 1.03,
+    "fan_required_at_c": 60,
+    "poll_seconds": 0.25,
+    "telemetry_timeout_seconds": 60.0,
+    "worker_heartbeat_seconds": 2.0
+  },
+  "planning": {
+    "enabled": true,
+    "beam_width": 2,
+    "collision_backend": "auto"
+  }
+}
