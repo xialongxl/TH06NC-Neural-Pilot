@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "project": "TH06NC-Neural-Pilot",
-  "author": {"display_name": "夏龙xl", "latin_name": "xialongxl"},
+  "author": {"display_name": "xialongxl", "latin_name": "xialongxl"},
   "license": "MIT",
   "source_of_truth": "Repository code and tests; this context is a navigation aid.",
   "python_package": "th06ai",

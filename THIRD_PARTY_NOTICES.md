@@ -1,6 +1,6 @@
 # 第三方来源与许可范围
 
-TH06NC-Neural-Pilot 的项目代码采用 MIT，版权所有者为夏龙xl（xialongxl）。第三方组件和原作权利不因此转移给本项目。
+TH06NC-Neural-Pilot 的项目代码采用 MIT，版权所有者为xialongxl。第三方组件和原作权利不因此转移给本项目。
 
 ## 直接派生的代码
 

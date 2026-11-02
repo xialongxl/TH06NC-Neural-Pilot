@@ -7,7 +7,7 @@ name = "th06nc-neural-pilot"
 version = "0.1.0"
 description = "Read-only TH06NC reinforcement learning with an independent fail-closed GPU watchdog"
 readme = "README.md"
-authors = [{name = "夏龙xl (xialongxl)"}]
+authors = [{name = "xialongxl"}]
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "pillow>=10", "mss>=10", "pefile>=2024.8.26", "capstone>=5", "nvidia-ml-py>=13.580", "fastapi==0.162.0", "uvicorn==0.54.0"]

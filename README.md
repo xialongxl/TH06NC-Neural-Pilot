@@ -13,7 +13,7 @@
 
 TH06NC-Neural-Pilot 是面向 Windows Steam 版《东方红魔乡：新典》的个人游戏 AI 项目。它将 **PPO 强化学习**与**滚动路径规划**结合，通过只读游戏状态理解当前场景，使用普通键盘输入操作自机，并提供一个本机 Web 控制台来管理训练、模型和诊断。
 
-项目由 **夏龙xl（xialongxl）**维护，主要借助 AI 辅助开发。代码采用 [MIT License](LICENSE)。
+项目由 xialongxl 维护，主要借助 AI 辅助开发。代码采用 [MIT License](LICENSE)。
 
 ## 为什么做这个项目
 
@@ -208,7 +208,7 @@ flowchart LR
 
 ## 作者与许可
 
-作者：[夏龙xl（xialongxl）](https://github.com/xialongxl)。这是个人维护的非官方研究项目。
+作者：[xialongxl](https://github.com/xialongxl)。这是个人维护的非官方研究项目。
 
 代码采用 [MIT License](LICENSE)。项目倡导强化学习交流与非商业单机游戏探索，这一用途倡议不构成 MIT 的附加限制。原作游戏及第三方内容的权利独立适用，相关使用须遵守对应规则；具体说明见[免责声明](DISCLAIMER.md)。
 

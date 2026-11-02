@@ -1,6 +1,6 @@
 # 用途、权利与免责声明
 
-项目：**TH06NC-Neural-Pilot**。作者：**夏龙xl（xialongxl）**。
+项目：**TH06NC-Neural-Pilot**。作者：**xialongxl**。
 
 ## 用途倡议与 MIT 的关系
 
