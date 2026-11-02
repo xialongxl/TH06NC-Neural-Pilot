@@ -1,6 +1,6 @@
 # 贡献指南
 
-欢迎向 **TH06NC-Neural-Pilot** 提交问题、实验记录、文档或代码。维护者署名为夏龙xl（xialongxl）。实际托管地址尚未写死，使用项目所在仓库的 Issue／Pull Request 功能，不根据署名猜测账号或链接。
+欢迎向 **TH06NC-Neural-Pilot** 提交问题、实验记录、文档或代码。维护者署名为夏龙xl（xialongxl）。正式仓库为 [xialongxl/TH06NC-Neural-Pilot](https://github.com/xialongxl/TH06NC-Neural-Pilot)，请使用该仓库的 [Issues](https://github.com/xialongxl/TH06NC-Neural-Pilot/issues) 和 [Pull Requests](https://github.com/xialongxl/TH06NC-Neural-Pilot/pulls)。
 
 先读 [README](README.md)、[开发指南](docs/development.md)、[易错点](docs/gotchas.md)。代码贡献按项目 [MIT License](LICENSE) 提交，第三方来源仍保留原许可；提交者需有权贡献相应内容。当前不要求额外 CLA。
 

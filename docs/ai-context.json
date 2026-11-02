@@ -56,7 +56,7 @@
   },
   "publishing": {
     "workflow": "Use the current project root as the Git repository; inspect staged files before push.",
-    "repository_url": null,
+    "repository_url": "https://github.com/xialongxl/TH06NC-Neural-Pilot",
     "exclude": [".venv", "node_modules", "target", "runs", ".cache", "models", "research", "tmp", "config.json", "native_calibration.json", "native_resources_calibration.json", "training_backend.json", "ui_state.json", "*.pyd"],
     "keep": ["config.example.json", ".env.example", "frontend/package-lock.json", "native/Cargo.lock", "tests/fixtures/stage5-switch-window.npz"]
   },

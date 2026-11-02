@@ -19,6 +19,10 @@ test = ["pytest>=8", "httpx2==2.14.0"]
 [project.scripts]
 th06ai = "th06ai.__main__:main"
 
+[project.urls]
+Repository = "https://github.com/xialongxl/TH06NC-Neural-Pilot"
+Issues = "https://github.com/xialongxl/TH06NC-Neural-Pilot/issues"
+
 [tool.setuptools.packages.find]
 include = ["th06ai*"]
 

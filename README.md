@@ -1,5 +1,7 @@
 # TH06NC-Neural-Pilot
 
+[GitHub 仓库](https://github.com/xialongxl/TH06NC-Neural-Pilot) · [Issues](https://github.com/xialongxl/TH06NC-Neural-Pilot/issues) · [Pull Requests](https://github.com/xialongxl/TH06NC-Neural-Pilot/pulls)
+
 **面向 Windows Steam 版《东方红魔乡：新典》的实验性游戏 AI：用 PPO 学习策略，用滚动路径规划评估移动，通过本机网页控制训练。**
 
 这是一个个人项目，主要借助 AI 辅助开发。文档面向希望运行、研究、贡献代码的人类开发者，以及未来接手维护的 AI 助手。源码核对基准为 **2026-11-02**。
@@ -197,6 +199,6 @@ npm.cmd run build
 - 短时匀速预测不保证躲过未来新生、转向、传送或未适配攻击，不能称作最优路径或绝对安全。
 - 前端及原生扩展需要构建；没有验证过的单文件 EXE、完整 wheel 资源打包、Docker 或远程部署方案。
 - Python 尚无完整传递依赖锁；首次资源确认的自助流程、跨机器验收及 CI 仍需完善。
-- 作者已选择标准 MIT；原作及第三方权利仍独立适用。发布内容需通过过滤和脱敏检查，本次没有发布到外部平台。
+- 作者已选择标准 MIT；原作及第三方权利仍独立适用。推送前核对 Git 提交内容，个人配置、缓存、日志和模型保留在本机。
 
 参见[开源准备](docs/open-source-readiness.md)。
