@@ -14,6 +14,8 @@ MIT 仅覆盖本项目有权许可的代码和文档，不授予原作游戏、�
 
 本项目是个人制作、与东方 Project 游戏相关的非官方研究工具，不是原作或发行方的官方产品，也不表示获得其认可或专项授权。相关游戏及素材权利属于各自权利人。
 
+东方 Project 的原作者为 **ZUN**，其主宰的社团为 **上海アリス幻樂団（Team Shanghai Alice）**，见[东方 Project 官方介绍](https://touhou-project.news/touhou_project/)。《东方红魔乡：新典》的开发署名为 **上海アリス幻樂団、上海アリスReprise（上海爱丽丝幻回奏）**，发行方为 **Alliance Arts**，见 [Steam 官方商店页](https://store.steampowered.com/app/4659620/)。[《新典》官方网站](https://touhou-project.news/shanghai-alice-reprise/cn/)列有 ZUN、JYUNYA 等社团成员及游戏版权署名；具体游戏、角色、音乐、美术等内容的权利归属以官方声明为准。
+
 使用、展示、录播或分发与原作有关的内容时，请遵守适用的东方 Project 二次创作规约、视频发布规约和游戏相关条款，并以权利人届时公布的版本为准。项目以遵守这些规则为原则，不承诺任何具体使用行为天然符合全部规约。
 
 官方参考：

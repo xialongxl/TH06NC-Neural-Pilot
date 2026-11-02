@@ -1,5 +1,12 @@
 # TH06NC-Neural-Pilot
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Platform: Windows 10/11 x64](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4?style=flat-square)](docs/development.md)
+[![Python: 3.10](https://img.shields.io/badge/Python-3.10-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![PyTorch: CUDA](https://img.shields.io/badge/PyTorch-CUDA-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](docs/core-logic.md)
+[![Rust: optional](https://img.shields.io/badge/Rust-optional-DEA584?style=flat-square&logo=rust&logoColor=black)](native/README.md)
+[![Status: experimental](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)](#使用前需要知道)
+
 **探索如何让 AI 在弹幕中生存、收集资源，并有效地推进关卡。**
 
 [快速开始](#快速开始) · [工作原理](#工作原理) · [项目文档](#项目文档) · [路线图](#路线图) · [参与贡献](#参与贡献)
@@ -207,6 +214,15 @@ flowchart LR
 
 ## 致谢
 
-感谢东方 Project 的原作者与相关创作者，以及 PyTorch、Stable-Baselines3、Gymnasium、React、FastAPI、PyO3 等开源项目。
+首先感谢 **ZUN**，以及他主宰的 **上海アリス幻樂団（Team Shanghai Alice）**，创作了东方 Project 和《东方红魔乡》。这个项目对弹幕、关卡推进与学习过程的探索，建立在原作的游戏设计之上。原作署名可查阅[东方 Project 官方介绍](https://touhou-project.news/touhou_project/)。
+
+也感谢《东方红魔乡：新典》的开发与发行团队：
+
+- **上海アリス幻樂団、上海アリスReprise（官方中文名：上海爱丽丝幻回奏）**：《新典》的开发署名；新社团的官方网站列有 **ZUN、JYUNYA** 等成员，《新典》的背景音乐由 ZUN 重新编曲。见[《新典》官方网站](https://touhou-project.news/shanghai-alice-reprise/cn/)。
+- **Alliance Arts**：《新典》的发行方。开发与发行署名见 [Steam 官方商店页](https://store.steampowered.com/app/4659620/)。
+
+上述致谢用于明确创作者与作品来源，不代表本项目获得官方授权、合作或背书。游戏及相关素材的权利以官方声明为准。
+
+感谢 **PyTorch、Stable-Baselines3、Gymnasium、NumPy、React、FastAPI、PyO3** 等开源项目，为模型训练、环境接口、数值计算、控制台和原生扩展提供基础。
 
 本项目使用和参考的第三方代码及许可记录在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。也感谢每一份帮助复现问题、检验假设和改善实现的贡献。

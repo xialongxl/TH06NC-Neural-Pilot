@@ -29,7 +29,9 @@ TH06NC-Neural-Pilot 的项目代码采用 MIT，版权所有者为夏龙xl（xia
 
 ## 原作与研究参考
 
-东方 Project、《东方红魔乡：新典》及其游戏内容属于相应权利人；本仓库不授予其素材许可。参见[免责声明](DISCLAIMER.md)。
+东方 Project 原作者为 **ZUN／上海アリス幻樂団（Team Shanghai Alice）**，见[东方 Project 官方介绍](https://touhou-project.news/touhou_project/)。《东方红魔乡：新典》的开发署名为 **上海アリス幻樂団、上海アリスReprise（上海爱丽丝幻回奏）**，发行方为 **Alliance Arts**，见 [Steam 官方商店页](https://store.steampowered.com/app/4659620/)；ZUN、JYUNYA 等成员署名及游戏版权标注见[《新典》官方网站](https://touhou-project.news/shanghai-alice-reprise/cn/)。
+
+东方 Project、《东方红魔乡：新典》及其游戏内容属于相应权利人；本仓库的 MIT 许可不授予其游戏、角色、美术、音乐或商标的权利，也不表示获得官方授权或背书。参见[免责声明](DISCLAIMER.md)。
 
 游戏结构研究曾参考 [TH06NC 开发笔记](https://github.com/vittorioromeo/th12_hfr/blob/main/docs/games/TH06NC_DEVNOTES.md)。本项目不包含该项目游戏补丁；实际接入受本版 EXE 哈希与代码特征验证约束。参考思路不等同于可以任意复制上游代码或资源。
 
