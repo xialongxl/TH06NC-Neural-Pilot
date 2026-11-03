@@ -250,12 +250,16 @@ class TouhouEnv(gym.Env):
         self.status(phase="核对关卡状态", message="识别暂停、关卡与游戏菜单")
         self.lease()
         f = self.reader.read()
+        self.status(game_phase=phase_of(f), game_phase_evidence=f.phase_evidence,
+                    game_settings=observed_settings(f), native_tick=f.tick)
         setup = getattr(self, 'game_setup', None)
         if phase_of(f) in MENU_PHASES or phase_of(f) == 'result':
             self._enter_from_menu()
             self.current=self.reader.read()
             return
-        if not f.stage_active or f.tick <= 5:
+        # A real pause can freeze the very first tick (including tick 0).
+        # Native phase/activity identifies an entered stage, not its age.
+        if not f.stage_active:
             raise RuntimeError("未识别到已开始的关卡。请先进入关卡并暂停")
         if setup is not None and not setup.matches(f):
             self._return_to_title()
@@ -324,10 +328,7 @@ class TouhouEnv(gym.Env):
                 selection=f.menu_selection
                 try:
                     if setup is not None:
-                        wrong_entry = (phase not in ('title_prompt','title')
-                            and 'practice_menu' in f.phase_evidence
-                            and f.phase_evidence['practice_menu'] != (setup.mode == 'practice'))
-                        key = 'x' if wrong_entry else menu_key(f, setup)
+                        key = menu_key(f, setup)
                     else:
                         target=0 if phase in ('title','run_mode') else None
                         if selection is None or not 0<=selection<=10:

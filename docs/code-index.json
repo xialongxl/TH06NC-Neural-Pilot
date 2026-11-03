@@ -1032,7 +1032,7 @@
     },
     {
       "path": "th06ai/environment.py",
-      "sha256": "ce422d8b17ce6b4277f748680045cca42bf1182b09daa19e257522fcbd801d4d",
+      "sha256": "e3ba01208017a15cef468da3c203f99d5afb2758091106c244f87508f0480dee",
       "summary": "",
       "imports": [
         ".acceleration",
@@ -1150,107 +1150,107 @@
             },
             {
               "name": "_verify_setup",
-              "line": 273,
+              "line": 277,
               "signature": "self, frame, *, stage_boundary=False"
             },
             {
               "name": "_return_to_title",
-              "line": 281,
+              "line": 285,
               "signature": "self"
             },
             {
               "name": "_enter_from_menu",
-              "line": 300,
+              "line": 304,
               "signature": "self"
             },
             {
               "name": "_frozen",
-              "line": 349,
+              "line": 350,
               "signature": "self"
             },
             {
               "name": "pause",
-              "line": 355,
+              "line": 356,
               "signature": "self"
             },
             {
               "name": "_await_manual_pause",
-              "line": 383,
+              "line": 384,
               "signature": "self"
             },
             {
               "name": "_account_menu_gap",
-              "line": 399,
+              "line": 400,
               "signature": "self, frame"
             },
             {
               "name": "resume",
-              "line": 413,
+              "line": 414,
               "signature": "self"
             },
             {
               "name": "_observe_control",
-              "line": 480,
+              "line": 481,
               "signature": "self, frame, action"
             },
             {
               "name": "pause_for_user",
-              "line": 488,
+              "line": 489,
               "signature": "self"
             },
             {
               "name": "resume_for_user",
-              "line": 515,
+              "line": 516,
               "signature": "self"
             },
             {
               "name": "_restart",
-              "line": 519,
+              "line": 520,
               "signature": "self"
             },
             {
               "name": "reset",
-              "line": 582,
+              "line": 583,
               "signature": "self, *, seed=None, options=None"
             },
             {
               "name": "_practice_result",
-              "line": 624,
+              "line": 625,
               "signature": "self, frame"
             },
             {
               "name": "step",
-              "line": 643,
+              "line": 644,
               "signature": "self, action"
             },
             {
               "name": "_pause_sampling",
-              "line": 657,
+              "line": 658,
               "signature": "self, reason, *, stage_boundary=False"
             },
             {
               "name": "_record_stage_context",
-              "line": 667,
+              "line": 668,
               "signature": "self, frame, before"
             },
             {
               "name": "_rebase_sampling",
-              "line": 689,
+              "line": 690,
               "signature": "self, frame, before"
             },
             {
               "name": "_advance_dialogue",
-              "line": 712,
+              "line": 713,
               "signature": "self"
             },
             {
               "name": "_step",
-              "line": 747,
+              "line": 748,
               "signature": "self, action"
             },
             {
               "name": "close",
-              "line": 974,
+              "line": 975,
               "signature": "self"
             }
           ]
@@ -1361,7 +1361,7 @@
     },
     {
       "path": "th06ai/game_settings.py",
-      "sha256": "5872dd0692c769f2a410b69c246f56bb0b314102c170efdbe92d930385841d07",
+      "sha256": "8ffc1039a4c570abc53fc8a112eb473e6a7ba4f36d2d60818353450fa163309b",
       "summary": "Requested game setup and observed identity are deliberately separate.",
       "imports": [
         "__future__",
@@ -2187,7 +2187,7 @@
     },
     {
       "path": "th06ai/native.py",
-      "sha256": "1dd48fba2581bcd3d8bee3eb2fbcdad8c6d0f86955c46c6947e5fd4ec6fb470d",
+      "sha256": "20e9ffaa492b1367793ee9754adf75bd90c48b79799b0c78070b49e0dc3f850c",
       "summary": "Version-pinned, read-only TH06NC state adapter.",
       "imports": [
         ".combat",
@@ -2303,7 +2303,7 @@
             },
             {
               "name": "close",
-              "line": 480,
+              "line": 484,
               "signature": "self"
             }
           ]

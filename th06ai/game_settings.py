@@ -122,6 +122,29 @@ def menu_key(frame, setup):
                'practice_stage': setup.stage-1, 'start_confirm': 0}
     if phase not in targets:
         raise ValueError('尚未识别可操作的菜单')
+    # A request may start on an already-open deep menu. Only earlier,
+    # confirmed choices are compared; the current cursor is not a commit.
+    evidence = frame.phase_evidence
+    confirmed = evidence.get('menu_confirmed_settings', {})
+    if phase not in ('title', 'title_prompt'):
+        if ('practice_menu' in evidence
+                and evidence['practice_menu'] != (setup.mode == 'practice')):
+            return 'x'
+        difficulty = confirmed.get('difficulty')
+        if (phase == 'difficulty' and difficulty is not None
+                and (difficulty == 'extra') != (setup.difficulty == 'extra')):
+            return 'x'  # Extra and the regular difficulty list have distinct title entries.
+        if (phase in ('character', 'shot', 'run_mode', 'practice_stage', 'start_confirm')
+                and difficulty is not None and difficulty != setup.difficulty):
+            return 'x'
+        character = confirmed.get('character')
+        if (phase in ('shot', 'run_mode', 'practice_stage', 'start_confirm')
+                and character is not None and character != setup.character.split('_')[0]):
+            return 'x'
+        shot = confirmed.get('shot')
+        if (phase in ('run_mode', 'practice_stage', 'start_confirm') and shot is not None
+                and shot != setup.character.split('_')[1]):
+            return 'x'
     if phase == 'practice_stage':
         count = frame.phase_evidence.get('practice_stage_count')
         if count is None or setup.stage > count:

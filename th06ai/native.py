@@ -438,13 +438,17 @@ class GameReader:
                                     menu_ticks=struct.unpack('<i',p.read(NC_MENU+0x9638,4))[0])
                     menu_flags = p.read(NC_MENU+0x168D1, 3)
                     evidence['practice_menu'] = menu_flags[0] == 1
-                    if evidence['menu_screen'] == 22:
+                    if evidence['menu_screen'] in (9, 11, 13, 14, 22, 24):
                         diff = struct.unpack('<i', p.read(DIFFICULTY_RVA, 4))[0]
                         char, shot = p.read(CHARACTER_RVA, 2)
+                        difficulty, character, _ = decode_identity(diff,char,shot,1,0,0)
+                        evidence['menu_confirmed_settings'] = {'difficulty':difficulty,
+                            'character':character.split('_')[0] if character else None,
+                            'shot':character.split('_')[1] if character else None}
+                    if evidence['menu_screen'] == 22:
                         if 0 <= diff < 4 and char in (0,1) and shot in (0,1):
                             count = p.read(PRACTICE_UNLOCK_RVA+(char*2+shot)*24+diff, 1)[0]
                             evidence['practice_stage_count'] = min(count, 5 if diff == 0 else 6)
-                            difficulty, character, _ = decode_identity(diff,char,shot,1,0,0)
                             selection = evidence['menu_selection']
                             evidence['menu_game_settings'] = {'difficulty':difficulty,'character':character,
                                 'mode':'practice', 'stage':selection+1 if 0 <= selection < 6 else None,

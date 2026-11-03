@@ -131,6 +131,80 @@ def test_wrong_observed_difficulty_pauses_without_sending_an_action(monkeypatch)
     assert calls==[]
 
 
+@pytest.mark.parametrize('tick', range(6))
+@pytest.mark.parametrize('restart', (False,True))
+def test_immediate_opening_pause_is_an_entered_practice_stage(monkeypatch,tick,restart):
+    env,_,calls=make_fake(monkeypatch)
+    env.wait_for_focus=lambda:None
+    env.game_setup=GameSetup(mode='practice',difficulty='lunatic')
+    f=replace(frame(),tick=tick,paused=True,phase='pause',stage_active=True,stage_id=1,
+              difficulty='lunatic',character='reimu_a',game_mode='practice')
+    env.reader.read=lambda:f
+    transactions=[]
+    env._restart=lambda:transactions.append('restart')
+    env.resume=lambda:transactions.append('resume')
+    env._return_to_title=lambda:pytest.fail('A confirmed first-tick pause must not return to title')
+    env.ensure_game_started(restart=restart)
+    assert transactions==['restart' if restart else 'resume']
+    assert env.current is f and calls==[]
+
+
+@pytest.mark.parametrize('phase',('character','shot','run_mode','practice_stage','start_confirm'))
+def test_deep_menu_rewinds_wrong_confirmed_difficulty_before_stage_unlock_check(phase):
+    f=replace(frame(),phase=phase,menu_selection=0,phase_evidence={
+        'practice_menu':True,'practice_stage_count':0,
+        'menu_confirmed_settings':{'difficulty':'normal','character':'reimu','shot':'a'}})
+    assert menu_key(f,GameSetup(mode='practice',difficulty='lunatic'))=='x'
+
+
+def test_current_cursor_is_not_mistaken_for_an_already_confirmed_parent():
+    evidence={'practice_menu':True,
+              'menu_confirmed_settings':{'difficulty':'normal','character':'marisa','shot':'b'}}
+    setup=GameSetup(mode='practice',difficulty='lunatic')
+    f=replace(frame(),phase='difficulty',menu_selection=3,phase_evidence=evidence)
+    assert menu_key(f,setup)=='z'
+    evidence['menu_confirmed_settings']['difficulty']='lunatic'
+    assert menu_key(replace(f,phase='character',menu_selection=0),setup)=='z'
+    evidence['menu_confirmed_settings']['character']='reimu'
+    assert menu_key(replace(f,phase='shot',menu_selection=0),setup)=='z'
+
+
+def test_open_practice_menu_rewinds_and_applies_difficulty_character_and_shot(monkeypatch):
+    env,clock,calls=make_fake(monkeypatch)
+    env.game_setup=GameSetup(mode='practice',difficulty='lunatic')
+    env.wait_for_focus=lambda:None
+    screens=['title','difficulty','character','shot','run_mode','practice_stage','start_confirm','combat']
+    state={'index':5,'selection':0,'difficulty':'normal','character':'marisa','shot':'b'}
+    def cursor(index):
+        return {'difficulty':('easy','normal','hard','lunatic').index(state['difficulty']),
+                'character':int(state['character']=='marisa'),'shot':int(state['shot']=='b')}.get(screens[index],0)
+    def read():
+        phase=screens[state['index']]
+        return replace(frame(),phase=phase,menu_selection=state['selection'],menu_ready=True,
+            stage_active=phase=='combat',stage_id=1,difficulty=state['difficulty'],
+            character=state['character']+'_'+state['shot'],game_mode='practice',
+            phase_evidence={'practice_menu':True,'practice_stage_count':6,
+                'menu_confirmed_settings':{k:state[k] for k in ('difficulty','character','shot')}})
+    def tap(key,**_):
+        calls.append(key);clock.now+=.1
+        phase=screens[state['index']]
+        if key=='x':
+            state['index']-=1;state['selection']=cursor(state['index'])
+        elif key=='z':
+            if phase=='difficulty':state['difficulty']=('easy','normal','hard','lunatic')[state['selection']]
+            elif phase=='character':state['character']=('reimu','marisa')[state['selection']]
+            elif phase=='shot':state['shot']=('a','b')[state['selection']]
+            state['index']+=1;state['selection']=cursor(state['index'])
+        elif key in ('down','right'):state['selection']+=1
+        elif key in ('up','left'):state['selection']-=1
+        else:raise AssertionError(key)
+    env.reader.read=read;env.tap=tap
+    env.ensure_game_started()
+    assert calls[:4]==['x']*4
+    assert env.current.difficulty=='lunatic' and env.current.character=='reimu_a'
+    assert state['index']==7 and env.current.stage_id==1
+
+
 def test_setting_mismatch_at_context_boundary_keeps_bootstrap_cut_and_no_keys(monkeypatch):
     env,_,calls=make_fake(monkeypatch)
     env.game_setup=GameSetup(difficulty='lunatic')
