@@ -8,10 +8,11 @@ from pathlib import Path
 
 class SamplingInterrupted(Exception):
     """Re-observe after a pause/clock reset, without inventing a transition."""
-    def __init__(self, *args, stage_boundary=False, bootstrap_boundary=False):
+    def __init__(self, *args, stage_boundary=False, bootstrap_boundary=False, episode_end=None):
         super().__init__(*args)
         self.stage_boundary = stage_boundary
         self.bootstrap_boundary = bootstrap_boundary or stage_boundary
+        self.episode_end = episode_end
 
 
 class FinishTraining(Exception):

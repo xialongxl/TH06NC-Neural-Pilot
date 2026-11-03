@@ -65,11 +65,14 @@ CUDA wheel 下载体积较大，缓存会同时出现分片和拼接文件。存
 | `input_backend` | dataclass 默认 python；示例 auto | 普通模拟输入实现选择 |
 | `inference_backend` | auto / eager / cuda_graph | auto 只针对图捕获限制回退 CUDA eager |
 | `goal` | survival / nmnb | NMNB 禁 B；不是通关认证 |
+| `game_setup` | 可选对象 | mode／difficulty／character／stage；控制台启动请求可明确指定本次设置 |
 | `planning.enabled` | true | 缓存规划是否参与决策 |
 | `planning.beam_width` | 2，1..4 | 后续搜索 beam；当前移动仍 18 种 |
 | `planning.collision_backend` | dataclass 默认 python；示例 auto | rust/auto 在可用时启用相应原生路径 |
 
 真实默认值要区分 dataclass、示例配置、已有本机 JSON 和 UI 会话参数，不可只看其中一个就断言所有部署相同。
+
+难度、自机、Practice 选关与相关 CLI 见[游戏设置](game-settings.md)。网页选项随本次启动请求传递；运行中的实际读数与请求分开显示，不会在训练中途静默改设置。
 
 ### 保护字段
 

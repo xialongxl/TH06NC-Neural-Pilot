@@ -3,6 +3,16 @@ export interface Model {
   saved_at: string | null; usable: boolean; compatibility: string;
   format: number; planner_version?: number;
 }
+export interface GameSetup {
+  mode: 'story' | 'practice'; difficulty: 'easy' | 'normal' | 'hard' | 'lunatic' | 'extra';
+  character: 'reimu_a' | 'reimu_b' | 'marisa_a' | 'marisa_b'; stage: number;
+}
+export interface GameSettings {
+  source?: 'game' | 'menu';
+  difficulty: GameSetup['difficulty'] | null; character: GameSetup['character'] | null;
+  mode: GameSetup['mode'] | 'challenge' | 'spell_practice' | null; stage: number | null;
+  movement_speeds?: [number, number] | null;
+}
 export interface Gpu {
   name?: string; temperature_c?: number; power_w?: number; memory_used?: number;
   memory_total?: number; utilization?: number; fan_percent?: number[]; memory_temperature_c?: number | null;
@@ -13,6 +23,7 @@ export interface Plan {
   all_routes_risky?: boolean; visible_bullets?: number;
 }
 export interface Worker {
+  game_settings?: GameSettings; requested_game_setup?: GameSetup | null;
   goal?: 'survival' | 'nmnb'; episode_bombs_used?: number;
   inference?: { engine?: string; total_ms?: number; p50_ms?: number; p95_ms?: number };
   stage_id?: number | null; stage_label?: string; stage_seconds?: number; stage_changes?: number;
@@ -39,6 +50,7 @@ export interface InputLatency {
 export interface Snapshot {
   shutdown?: { state: 'idle' | 'waiting' | 'stopping' | 'error' | 'closed'; message: string };
   game_probe?: { available: boolean; phase?: string; label: string; paused?: boolean; tick?: number;
+    game_settings?: GameSettings;
     stage_id?: number | null; stage_label?: string;
     menu_selection?: number | null; menu_ready?: boolean; observed_at: string; message: string } | null;
   acceleration?: { available: boolean; api_version?: number | null;
@@ -53,6 +65,7 @@ export interface Snapshot {
   safety: { temperature_limit_c: number; poll_seconds: number; telemetry_timeout_seconds: number;
     vram_fraction_limit: number; worker_heartbeat_seconds: number };
   default_minutes: number; versions: { observation: number; reward: number; planner: number };
+  default_game_setup?: GameSetup;
   gpu_history: { stamp: number | null; temperature_c: number; power_w?: number; utilization?: number }[];
   gpu_live: boolean; gpu_age_seconds?: number | null;
 }

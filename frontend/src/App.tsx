@@ -9,6 +9,8 @@ import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Box, Check, CheckC
 import { controls, date, duration, inputResponse, milliseconds, number, stateLabel } from './logic'
 import type { Logs, Mode, Model, Page, Snapshot } from './types'
 import { useConsole } from './useConsole'
+import { GameSetupFields, useGameSetup } from './GameSetupFields'
+import { gameSettingsLabel } from './gameSetup'
 
 type Command = (path: string, body?: unknown) => Promise<boolean>
 const TITLES = { train: '训练控制台', models: '模型库', diagnostics: '保护与诊断' }
@@ -109,6 +111,7 @@ const Guard = memo(GuardView, (a, b) => a.connected === b.connected && a.command
 function Training({ state, connected, pending, command, navigate }: { state: Snapshot; connected: boolean; pending: boolean; command: Command; navigate: (p: Page) => void }) {
   const [minutes, setMinutes] = useState(state.default_minutes)
   const [goal, setGoal] = useGoal('th06-training-goal', 'survival')
+  const [gameSetup, setGameSetup] = useGameSetup(state)
   const [create, setCreate] = useState(false)
   const [dismissedHistory, setDismissedHistory] = useState('')
   const c = controls(state, connected, pending)
@@ -118,10 +121,10 @@ function Training({ state, connected, pending, command, navigate }: { state: Sna
   const historyKey = `${state.run_dir}|${state.session.reason}`
   const budget = state.active ? w.budget_seconds || minutes * 60 : minutes * 60
   const start = async (mode: Mode) => {
-    if (await command('sessions', { mode, minutes, model_id: selected?.id, goal })) setCreate(false)
+    if (await command('sessions', { mode, minutes, model_id: selected?.id, goal, game_setup: gameSetup })) setCreate(false)
   }
   return <>
-    <div className="hero"><div><div className="eyebrow"><span />NEURAL PILOT / WORKSPACE</div><h1>训练控制台<span className="title-period">.</span></h1><p>选择模型、管理训练进度，并查看实时运行状态。</p></div><div className="hero-meta"><button className="btn secondary" disabled={!connected || pending || state.preview} onClick={() => void command('game/focus')}>切回游戏</button><span className="chip"><Crosshair size={13} />Normal · 灵梦 A</span><span className="chip"><Cpu size={13} />PPO · CUDA</span></div></div>
+    <div className="hero"><div><div className="eyebrow"><span />NEURAL PILOT / WORKSPACE</div><h1>训练控制台<span className="title-period">.</span></h1><p>选择模型、管理训练进度，并查看实时运行状态。</p></div><div className="hero-meta"><button className="btn secondary" disabled={!connected || pending || state.preview} onClick={() => void command('game/focus')}>切回游戏</button><span className="chip"><Crosshair size={13} />{!state.active && w.game_settings ? '上次 · ' : ''}{gameSettingsLabel(w.game_settings)}</span><span className="chip"><Cpu size={13} />PPO · CUDA</span></div></div>
     {(!connected || state.preview || (state.active && w.focus_pending) || (state.session.state === 'stopped' && state.session.reason && dismissedHistory !== historyKey)) && <div className={`banner ${!connected ? 'warning' : ''}`} role="status"><Info size={16} /><span>{!connected ? '后端连接中断，当前显示缓存数据。训练由独立进程继续保护，紧急时按 F8。' : state.preview ? '只读预览 · 可浏览模型与真实历史记录，不启动训练或发送游戏按键。' : state.active && w.focus_pending ? w.message || '等待游戏前台' : `历史记录 · ${date(state.session.time)} · ${state.session.reason}`}</span>{state.active && w.focus_pending ? <button className="btn secondary" disabled={pending || !connected || state.preview} onClick={() => void command('session/focus')}>切回游戏</button> : connected && !state.preview && <button className="icon-btn" aria-label="收起历史记录" onClick={() => setDismissedHistory(historyKey)}><X size={16} /></button>}</div>}
     <GameStatePanel state={state} connected={connected} pending={pending} command={command} />
     <div className="metrics">
@@ -136,6 +139,7 @@ function Training({ state, connected, pending, command, navigate }: { state: Sna
           <button className="model-select" disabled={state.busy || pending} onClick={() => navigate('models')}><span className="model-icon"><Box size={21} strokeWidth={1.5} /></span><span><strong>{state.active ? w.model_source ? '继续已有模型' : '新建模型' : selected?.name || '尚未选择模型'}</strong><small>{state.active ? w.model_source || '当前使用随机初始化模型' : selected ? `${number(selected.steps)} 步 · ${number(selected.updates)} 次更新 · ${selected.compatibility}` : '前往模型库选择检查点'}</small></span><ChevronDown size={17} /></button>
           <div className="field-label time-label">本次训练时长<span>分钟</span></div><div className="duration-options" role="group" aria-label="训练时长">{[1, 5, 10, 30, 60].map(v => <button key={v} disabled={state.busy || state.preview} className={v === minutes ? 'selected' : ''} onClick={() => setMinutes(v)}>{v}<span> min</span>{v === minutes && <Check size={12} />}</button>)}</div>
           <div className="field-label time-label">训练目标<span>{state.busy ? w.goal === 'nmnb' ? 'NMNB' : '生存练习' : '下次启动生效'}</span></div><div className="goal-options" role="group" aria-label="训练目标">{(['survival','nmnb'] as const).map(value => <button key={value} disabled={state.busy || state.preview} className={(state.busy ? w.goal : goal) === value ? 'selected' : ''} aria-pressed={(state.busy ? w.goal : goal) === value} onClick={() => setGoal(value)}><strong>{value === 'survival' ? '生存练习' : 'NMNB'}</strong><small>{value === 'survival' ? '允许学习危急保命 B' : '禁止 B · Miss 单独计数'}</small></button>)}</div>
+          <GameSetupFields value={gameSetup} disabled={state.busy || pending || state.preview} onChange={setGameSetup} />
           <div className="session-progress"><div><span>{state.active ? '有效训练进度' : '本次计划'}<b>{state.active ? duration(w.training_seconds) : '00:00'} <i>/ {duration(budget)}</i></b></span><span>{state.active ? `${Math.min(100, ((w.training_seconds || 0) / budget * 100)).toFixed(1)}%` : '等待手动开始'}</span></div><div className="track"><div style={{ width: `${state.active ? Math.min(100, (w.training_seconds || 0) / budget * 100) : 0}%` }} /></div></div>
           {state.busy ? <div className="session-actions"><button className="btn primary" disabled={!c.pause} onClick={() => void command('session/pause', { paused: !c.paused })}>{c.paused ? <Play size={16} fill="currentColor" /> : <Pause size={16} fill="currentColor" />}{state.finish_requested ? '正在保存模型…' : !state.active ? '正在启动保护…' : c.paused ? `恢复${state.session.mode === 'play' ? '试玩' : state.session.mode === 'evaluate' ? '评估' : '本次训练'}` : `暂停${state.session.mode === 'play' ? '试玩' : state.session.mode === 'evaluate' ? '评估' : '训练'}`}<kbd>F7</kbd></button><button className="btn secondary" disabled={!c.finish} onClick={() => void command('session/finish')}><ArrowDownToLine size={16} />保存并结束</button></div>
             : <div className="session-actions"><button className="btn primary" disabled={!c.start} onClick={() => void start('resume')}><Play size={15} fill="currentColor" />继续训练<ArrowRight size={16} /></button><button className="btn secondary" disabled={!c.create} onClick={() => setCreate(true)}><Plus size={16} />新建模型</button></div>}
@@ -151,16 +155,18 @@ function Training({ state, connected, pending, command, navigate }: { state: Sna
 
 function ModelsView({ state, connected, pending, command, navigate }: { state: Snapshot; connected: boolean; pending: boolean; command: Command; navigate: (p: Page) => void }) {
   const [goal, setGoal] = useGoal('th06-evaluation-goal', 'nmnb')
+  const [gameSetup, setGameSetup] = useGameSetup(state)
   const [search, setSearch] = useState('')
   const [usable, setUsable] = useState(false)
   const [detail, setDetail] = useState<Model | null>(null)
   const c = controls(state, connected, pending)
   const rows = state.models.filter(m => (!usable || m.usable) && `${m.name} ${m.path} ${m.steps} ${number(m.steps)}`.toLowerCase().includes(search.toLowerCase()))
   const select = async (m: Model) => { await command('models/select', { model_id: m.id }) }
-  const play = async (mode: Mode) => { if (await command('sessions', { mode, minutes: mode === 'evaluate' ? 60 : 10, model_id: state.selected_model_id, goal })) navigate('train') }
+  const play = async (mode: Mode) => { if (await command('sessions', { mode, minutes: mode === 'evaluate' ? 60 : 10, model_id: state.selected_model_id, goal, game_setup: gameSetup })) navigate('train') }
   return <><div className="hero"><div><div className="eyebrow"><span />MODEL REGISTRY</div><h1>模型库<span className="title-period">.</span></h1><p>选择历史检查点继续训练，或单独试玩与评估。</p></div><div className="hero-meta"><span className="chip"><Database size={13} />{state.models.length} 个检查点</span></div></div>
     <div className="model-toolbar"><div className="search-input"><Search size={17} /><input aria-label="搜索模型" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索模型、步数或文件名…" />{search && <button className="icon-btn" aria-label="清空搜索" onClick={() => setSearch('')}><X size={15} /></button>}</div><div className="filter-options"><button onClick={() => setUsable(false)} className={!usable ? 'selected' : ''}>全部模型</button><button onClick={() => setUsable(true)} className={usable ? 'selected' : ''}>可用模型</button></div></div>
     <section className="panel model-table"><div className="table-scroll"><table><thead><tr><th>模型名称</th><th>累计采样</th><th>参数更新</th><th>保存时间</th><th>兼容性</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{rows.map(m => <tr key={m.id} className={state.selected_model_id === m.id ? 'selected-row' : ''}><td><button className="model-name-btn" disabled={state.busy || pending || !m.usable} onClick={() => void select(m)}><span className={`table-model-icon ${state.selected_model_id === m.id ? 'active' : ''}`}>{state.selected_model_id === m.id ? <Check size={17} /> : <Box size={17} />}</span><span><strong>{m.name}{state.selected_model_id === m.id && <b className="selected-tag">已选择</b>}</strong><small title={m.path}>{m.path}</small></span></button></td><td className="mono">{number(m.steps)}</td><td className="mono">{number(m.updates)}</td><td>{date(m.saved_at)}</td><td><span className={`compatibility ${m.usable ? '' : 'bad'}`}><span className={`dot ${m.usable ? 'green' : 'gray'}`} />{m.compatibility}</span></td><td><button className="icon-btn" aria-label={`查看${m.name}详情`} onClick={() => setDetail(m)}><Ellipsis size={19} /></button></td></tr>)}</tbody></table></div>{!rows.length && <div className="empty-state"><Database size={30} /><strong>{search ? '没有匹配的模型' : '还没有模型检查点'}</strong><p>{search ? '试试其他步数或文件名。' : '首轮训练保存后，检查点会出现在这里。'}</p>{search && <button className="text-btn" onClick={() => setSearch('')}>清空搜索<ArrowRight size={14} /></button>}</div>}</section>
+    <GameSetupFields value={gameSetup} disabled={state.busy || pending || state.preview} onChange={setGameSetup} />
     <div className="evaluation-goal"><label htmlFor="evaluation-goal">试玩 / 评估目标</label><select id="evaluation-goal" disabled={state.busy || pending || state.preview} value={goal} onChange={e => setGoal(e.target.value as 'survival' | 'nmnb')}><option value="nmnb">NMNB · 禁止 B</option><option value="survival">生存练习 · 允许保命 B</option></select><span>只推理，不更新权重；使用 B 的存活单独统计。</span></div>
     <div className="models-bottom"><div><ShieldCheck size={16} /><span>每次保存自动保留历史检查点，继续训练不会清空已有权重。</span></div><div className="model-actions"><button className="btn secondary" disabled={!c.start} onClick={() => void play('play')}><Eye size={16} />模型试玩</button><button className="btn secondary" disabled={!c.start} onClick={() => void play('evaluate')}><Target size={16} />独立评估 10 局</button><button className="btn primary" onClick={() => navigate('train')}>前往训练<ArrowRight size={16} /></button></div></div>
     {detail && <Dialog title="检查点详情" close={() => setDetail(null)}><div className="detail-model"><Box size={27} /><div><strong>{detail.name}</strong><small>{date(detail.saved_at)}</small></div></div><dl className="detail-list"><div><dt>累计采样</dt><dd>{number(detail.steps)} 步</dd></div><div><dt>参数更新</dt><dd>{number(detail.updates)}</dd></div><div><dt>观测格式</dt><dd>v{detail.format}</dd></div><div><dt>保存时规划版本</dt><dd>{detail.planner_version ? `v${detail.planner_version}` : '未启用'}</dd></div><div><dt>兼容性</dt><dd>{detail.compatibility}</dd></div></dl><div className="file-path"><FolderOpen size={15} /><code>{detail.path}</code></div><div className="dialog-actions"><button className="btn secondary" onClick={() => setDetail(null)}>关闭</button><button className="btn primary" disabled={!detail.usable || state.busy || pending} onClick={async () => { if (await command('models/select', { model_id: detail.id })) setDetail(null) }}><Check size={16} />使用此模型</button></div></Dialog>}
@@ -204,15 +210,16 @@ function InputLatencyPanel({ state }: { state: Snapshot }) {
   </section>
 }
 
-const GAME_PHASES: Record<string, string> = { combat: '关卡进行中', boss: 'Boss 战', pause: '游戏已暂停', dialogue: 'Boss 对话', script_wait: '剧情过场', continue: '续关菜单', result: '结算画面', dead: '自机中弹', title: '主菜单', title_prompt: '标题画面', difficulty: '选择难度', character: '选择自机', shot: '选择机体', run_mode: '选择游戏模式', start_confirm: '确认开始游戏', menu_transition: '菜单切换中' }
+const GAME_PHASES: Record<string, string> = { combat: '关卡进行中', boss: 'Boss 战', pause: '游戏已暂停', dialogue: 'Boss 对话', script_wait: '剧情过场', continue: '续关菜单', result: '结算画面', dead: '自机中弹', title: '主菜单', title_prompt: '标题画面', difficulty: '选择难度', character: '选择自机', shot: '选择机体', run_mode: '选择游戏模式', practice_stage: 'Practice 选择关卡', start_confirm: '确认开始游戏', menu_transition: '菜单切换中' }
 
 function GameStatePanel({ state, connected, pending, command }: { state: Snapshot; connected: boolean; pending: boolean; command: Command }) {
   const w = state.session.worker || {}
   const probe = state.game_probe
   const label = state.active ? GAME_PHASES[w.game_phase || ''] || '等待工作进程识别' : probe?.label || '尚未检测游戏'
-  const stage = state.active ? w.stage_label || '关卡待识别' : probe?.stage_label
+  const settings = state.active ? w.game_settings : probe?.game_settings
+  const stage = settings?.source === 'menu' && settings.stage ? `当前选中 Stage ${settings.stage}` : state.active ? w.stage_label || '关卡待识别' : probe?.stage_label
   return <section className="panel game-state-panel" aria-label="游戏状态">
-    <div className="heading-icon mint"><Eye size={17} /></div><div className="game-state-copy"><strong>{stage ? `${stage} · ${label}` : label}</strong><small>{state.active ? `当前关卡 ${duration(w.stage_seconds)} · 来自当前工作进程` : probe ? `只读检测于 ${date(probe.observed_at)} · ${probe.available ? '与历史会话记录无关' : probe.message}` : '可从主菜单开始；开始后识别菜单、对话与战斗。'}</small></div>
+    <div className="heading-icon mint"><Eye size={17} /></div><div className="game-state-copy"><strong>{stage ? `${stage} · ${label}` : label}</strong>{settings && <small>{gameSettingsLabel(settings)}</small>}<small>{state.active ? `当前关卡 ${duration(w.stage_seconds)} · 来自当前工作进程` : probe ? `只读检测于 ${date(probe.observed_at)} · ${probe.available ? '与历史会话记录无关' : probe.message}` : '可从主菜单开始；开始后识别菜单、对话与战斗。'}</small></div>
     <button className="btn secondary" disabled={!connected || pending || state.busy || state.preview} onClick={() => void command('game/probe')}>检测游戏状态</button>
   </section>
 }

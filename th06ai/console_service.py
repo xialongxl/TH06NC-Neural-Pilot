@@ -19,6 +19,7 @@ from .model_store import inspect_checkpoint, list_checkpoints
 from .observations import OBSERVATION_VERSION
 from .planner_spec import PLANNER_VERSION
 from .rewards import REWARD_VERSION
+from .game_settings import GameSetup, parse_setup, observed_settings
 
 ACTIVE_STATES = {"starting", "running", "paused", "finishing", "monitoring"}
 MODES = {"resume", "train", "play", "evaluate", "check", "monitor", "calibrate"}
@@ -30,7 +31,7 @@ class ConsoleError(Exception):
         self.status_code = status_code
 
 
-def build_command(mode, minutes, model=None, goal=None):
+def build_command(mode, minutes, model=None, goal=None, game_setup=None):
     if mode not in MODES:
         raise ValueError("不支持的操作")
     if not math.isfinite(float(minutes)) or not 0 < float(minutes) <= 60:
@@ -44,6 +45,9 @@ def build_command(mode, minutes, model=None, goal=None):
     if goal is not None:
         if goal not in ('survival','nmnb'):raise ValueError('不支持的训练目标')
         command += ['--goal',goal]
+    setup = parse_setup(game_setup)
+    if setup is not None:
+        command += ['--game-setup', json.dumps(setup.to_dict(), separators=(',', ':'))]
     return command
 
 
@@ -224,6 +228,7 @@ class ConsoleService:
                     'acceleration':{**self._native_backend,'collision':self.config.planning.collision_backend,
                                     'input':self.config.input_backend},
                     "busy": active or launching, "run_dir": str(path) if path else None,
+                    'default_game_setup':(self.config.game_setup or GameSetup()).to_dict(),
                     "hotkeys": status.get('hotkeys') or {},
                     "window_focus": self.last_focus,
                     "pause_requested": bool(path and (path / "PAUSE").exists()),
@@ -296,6 +301,7 @@ class ConsoleService:
                 reader=GameReader(self.config.game_path)
                 f=reader.read()
                 self.last_game_probe={'available':True,'phase':f.phase,'label':PHASE_NAMES.get(f.phase,'等待识别'),
+                    'game_settings':observed_settings(f),
                     'stage_id':getattr(f,'stage_id',None),'stage_label':stage_label(getattr(f,'stage_id',None)),
                     'paused':f.paused,'tick':f.tick,'menu_selection':f.menu_selection,'menu_ready':f.menu_ready,
                     'evidence':f.phase_evidence,'player_shots':f.player_shots,'visible_lasers':len(f.lasers),
@@ -326,7 +332,7 @@ class ConsoleService:
             self._native_backend=available
             return {'message':'计算后端已保存，下次会话生效；未启动训练'}
 
-    def start(self, mode, minutes, model_id=None, goal=None):
+    def start(self, mode, minutes, model_id=None, goal=None, game_setup=None):
         with self._lock:
             self._writable()
             if self._closing:
@@ -346,7 +352,13 @@ class ConsoleService:
                 model = entry.path
             if mode in {"resume", "train", "play", "evaluate"} and not self.readiness()["ready"]:
                 raise ConsoleError("训练环境尚未就绪，请在保护与诊断中查看检查结果")
-            command = build_command(mode, minutes, model, goal)
+            try:
+                setup = parse_setup(game_setup)
+            except ValueError as error:
+                raise ConsoleError(str(error), 422) from error
+            if setup is not None and mode not in ('resume','train','play','evaluate'):
+                raise ConsoleError('仅训练、试玩与评估接受游戏设置',422)
+            command = build_command(mode, minutes, model, goal, setup)
             run_path = new_run(self.root, "train" if mode == "resume" else mode)
             command += ["--run-dir", str(run_path)]
             log = self.root / "runs/launcher.log"

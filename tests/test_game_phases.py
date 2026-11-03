@@ -78,7 +78,7 @@ def test_resume_waits_for_real_menu_readiness_before_sending_z(monkeypatch):
 
 def test_main_menu_to_normal_character_shot_and_run_mode_uses_confirmed_states(monkeypatch):
     env,clock,calls=make_fake(monkeypatch)
-    states=[('title_prompt',0),('title',2),('title',1),('title',0),('difficulty',0),('difficulty',1),('character',0),('shot',1),('run_mode',0),('start_confirm',0),('combat',0)]
+    states=[('title_prompt',0),('title',2),('title',1),('title',0),('difficulty',0),('character',0),('shot',1),('run_mode',0),('start_confirm',0),('combat',0)]
     index=[0]
     def read():
         phase,selection=states[index[0]]
@@ -89,7 +89,7 @@ def test_main_menu_to_normal_character_shot_and_run_mode_uses_confirmed_states(m
     env.tap=tap
     env.ensure_game_started()
     assert phase_of(env.current)=='combat'
-    assert calls==['z','up','up','z','down','z','z','z','z','z']
+    assert calls==['z','up','up','z','z','z','z','z','z']
 
 def test_dialogue_never_carries_arrows_bomb_or_shift_and_forces_new_shoot_edge(monkeypatch):
     env,_,calls=make_fake(monkeypatch)

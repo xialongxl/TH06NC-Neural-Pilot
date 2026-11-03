@@ -9,6 +9,7 @@ from .policy_spec import POLICY_VERSION, BOMB_PRIOR
 from .planner_spec import PLAN_MOVEMENTS, PLAN_FEATURES, PLAN_LOGIT_SCALE
 from .stage import STAGE_FEATURES
 from .navigation import NAV_FEATURES, DECISION_FEATURES, RESCUE_BOMB_PRIOR
+from .game_settings import CONTEXT_FEATURES
 
 class BulletEncoder(BaseFeaturesExtractor):
     """Shared point encoder: insensitive to the ordering of visible bullets."""
@@ -22,6 +23,7 @@ class BulletEncoder(BaseFeaturesExtractor):
         self.has_planning = "planning" in observation_space.spaces
         self.has_stage = 'stage' in observation_space.spaces
         self.has_navigation = 'navigation' in observation_space.spaces
+        self.has_game_context = 'game_context' in observation_space.spaces
         if self.has_items:
             self.item = nn.Sequential(nn.Linear(ITEM_FEATURES, 32), nn.ReLU(), nn.Linear(32, 32), nn.ReLU())
         if self.has_enemies:
@@ -34,7 +36,8 @@ class BulletEncoder(BaseFeaturesExtractor):
                                               + (128 if self.has_full_bullets else 0)
                                               + (PLAN_MOVEMENTS*PLAN_FEATURES if self.has_planning else 0)
                                               + (STAGE_FEATURES if self.has_stage else 0)
-                                              + (18*NAV_FEATURES+DECISION_FEATURES if self.has_navigation else 0), 128), nn.ReLU())
+                                              + (18*NAV_FEATURES+DECISION_FEATURES if self.has_navigation else 0)
+                                              + (CONTEXT_FEATURES if self.has_game_context else 0), 128), nn.ReLU())
 
     @staticmethod
     def pool(points, encoder):
@@ -64,6 +67,8 @@ class BulletEncoder(BaseFeaturesExtractor):
             features.append(observations['stage'])
         if self.has_navigation:
             features.extend((observations['navigation'].flatten(start_dim=1),observations['decision']))
+        if self.has_game_context:
+            features.append(observations['game_context'])
         return self.fusion(torch.cat(features, dim=1))
 
 

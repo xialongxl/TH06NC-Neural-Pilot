@@ -26,4 +26,8 @@ def context_changed(before, after):
     """Unknown identity is a separate context, never silently treated as Stage 1."""
     if before is None or after is None:
         return False
-    return decode_stage(getattr(before, 'stage_id', None)) != decode_stage(getattr(after, 'stage_id', None))
+    if decode_stage(getattr(before, 'stage_id', None)) != decode_stage(getattr(after, 'stage_id', None)):
+        return True
+    return any(getattr(before, key, None) is not None and getattr(after, key, None) is not None
+               and getattr(before, key) != getattr(after, key)
+               for key in ('difficulty', 'character', 'game_mode'))

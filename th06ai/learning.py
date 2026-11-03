@@ -24,6 +24,7 @@ from .planner_spec import PLANNER_VERSION, PLAN_FIELDS
 from .input_timing import clock_ns
 from .log_rows import action_row, episode_row, serialized_row
 from .navigation import NAV_FIELDS, DECISION_FIELDS, RESCUE_BOMB_PRIOR
+from .game_settings import CONTEXT_FIELDS, observed_settings
 
 
 def make_model(env, device="cpu", seed=17):
@@ -83,6 +84,8 @@ def save_model(model, path: Path, run_dir: Path, steps: int):
                 "bomb_prior": BOMB_PRIOR if isinstance(model.policy, ResourcePolicy) else None,
                 'rescue_bomb_prior':RESCUE_BOMB_PRIOR,'navigation_fields':NAV_FIELDS,'decision_fields':DECISION_FIELDS,
                 'training_goal':getattr(model,'training_goal','survival'),
+                'game_context_fields':CONTEXT_FIELDS,
+                'game_setup':getattr(model,'game_setup',None),
                 "policy_upgrade": getattr(model, "policy_upgrade", None)})
     return preserve_checkpoint(path, ROOT / "models")
 
@@ -97,7 +100,7 @@ def load_model(path: Path, env, device="cpu"):
     checkpoint = inspect_checkpoint(path, verify=True)
     if not checkpoint.usable:
         raise RuntimeError(f"模型无法加载：{checkpoint.compatibility}")
-    if checkpoint.metadata.get("format") in (1, 2, 3, 4, 5, 6, 7):
+    if checkpoint.metadata.get("format") in (1, 2, 3, 4, 5, 6, 7, 8):
         model = migrate_legacy(path, env, device)
         upgraded = checkpoint.metadata.get("format") == 1 or (checkpoint.metadata.get("policy_version") or 1) < POLICY_VERSION
         if upgraded:
@@ -127,7 +130,7 @@ def load_model(path: Path, env, device="cpu"):
 
 
 def migrate_legacy(path: Path, env, device="cpu"):
-    """Extend v1..v7 encoders with zero-influence new input columns.
+    """Extend v1..v8 encoders with zero-influence new input columns.
 
     Existing encoder/actor/value parameters and compatible Adam moments are
     copied. An 18-action source also gets a rare bomb branch; a 36-action
@@ -149,7 +152,7 @@ def migrate_legacy(path: Path, env, device="cpu"):
             if original.shape[1] == 132:
                 result[:, :128] = original[:, :128]
                 result[:, 192:196] = original[:, 128:132]
-            elif original.shape[1] in (201, 265, 293, 421, 565, 573):
+            elif original.shape[1] in (201, 265, 293, 421, 565, 573, 743):
                 result[:, :original.shape[1]] = original
             else:
                 raise RuntimeError("未知的旧观测编码布局")
@@ -296,14 +299,17 @@ class TrainingCallback(BaseCallback):
                 self.action_rows.append(action_row(info, int(self.num_timesteps)))
         for done, info in zip(self.locals.get("dones", []), self.locals.get("infos", [])):
             if done:
-                row = episode_row(info,self.num_timesteps,round(elapsed,3))
-                self.episode_rows.append(row)
-                self.pending_episode_rows.append(row)
+                self.record_episode_end(info)
         self.status(steps=int(self.num_timesteps), training_seconds=round(elapsed, 1),
                     session_steps=int(self.num_timesteps - self.base_steps),
                     bomb_requests=self.bomb_requests, bombs_used=self.bombs_used,
                     fps=round((self.num_timesteps - self.base_steps) / max(elapsed, .001), 1))
         return elapsed < self.minutes * 60
+
+    def record_episode_end(self, info):
+        row = episode_row(info, self.num_timesteps, round(self.elapsed(), 3))
+        self.episode_rows.append(row)
+        self.pending_episode_rows.append(row)
 
     def flush_actions(self):
         if self.pending_episode_rows:
@@ -354,6 +360,7 @@ class TrainingCallback(BaseCallback):
             payload["steps"] = np.arange(first_step, last_step+1, dtype=np.int64)
             payload["metadata"] = np.array(json.dumps({"observation_version": OBSERVATION_VERSION,
                     'stage_fields': ['Stage 1', 'Stage 2', 'Stage 3', 'Stage 4', 'Stage 5', 'Stage 6', 'EX', 'known'],
+                    'game_context_fields': CONTEXT_FIELDS,
                     'stage_return_boundary': 'bootstrap old-stage value; cut GAE before new-stage samples',
                     'freshness_return_boundary':'bootstrap previous value; cut GAE across discarded stale decisions',
                     'navigation_fields':NAV_FIELDS,'decision_fields':DECISION_FIELDS,
@@ -424,6 +431,7 @@ def train(config: Config, env, run_dir: Path, minutes: float, status, lease, res
         torch.cuda.set_per_process_memory_fraction(.15)
     model = load_model(Path(resume), env, config.device) if resume else make_model(env, config.device)
     adapt_objective(model)
+    model.game_setup = config.game_setup.to_dict() if config.game_setup else None
     model.training_goal = config.goal
     from .inference import PolicyRunner
     model.decision_runner = PolicyRunner(model.policy, config.inference_backend)
@@ -476,7 +484,13 @@ def evaluate(model, env, run_dir: Path, status, lease, episodes=10):
                 if hasattr(env,'refresh_decision'):env.refresh_decision()
                 if runner is not None and hasattr(env,'record_decision'):env.record_decision(decision)
                 obs, reward, terminated, truncated, info = env.step(int(action))
-            except SamplingInterrupted:
+            except SamplingInterrupted as interruption:
+                if interruption.episode_end is not None:
+                    info = interruption.episode_end
+                    rows.append({'episode':i+1, **episode_row(info,getattr(env,'total_steps',0)),
+                                 **info.get('episode_diagnostics',{})})
+                    atomic_json(run_dir/'evaluation_progress.json',evaluation_report(model,env,rows,episodes))
+                    break
                 if control:
                     control.gate(env)
                 obs = env.builder.build(env.current)
@@ -503,6 +517,7 @@ def evaluation_report(model, env, rows, requested, complete=False):
                             'steps':getattr(model,'source_checkpoint_steps',None)},
               'planner_version':PLANNER_VERSION,
               'goal':getattr(env,'goal','survival'),
+              'requested_game_setup':env.game_setup.to_dict() if getattr(env,'game_setup',None) else None,
               'bombs_used':sum(r.get('bombs_used',0) for r in rows),
               'nmnb_clean_observation_rate':float(np.mean([not r['died'] and not r.get('bombs_used',0) for r in rows])) if rows else None,
               'nmnb_note':'Observed windows only; neither time-limit survival nor an unfinished run proves a full NMNB clear.',

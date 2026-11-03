@@ -9,6 +9,7 @@ from .planner_spec import PLAN_MOVEMENTS, PLAN_FEATURES
 from .input_timing import clock_ns
 from .stage import STAGE_FEATURES, stage_vector, context_changed
 from .navigation import NAV_FEATURES, DECISION_FEATURES
+from .game_settings import CONTEXT_FEATURES, context_vector
 
 NEAREST = 64
 FULL_BULLETS = CAPACITY
@@ -21,7 +22,7 @@ RESOURCE_FEATURES = 5
 NEAREST_ENEMIES = 32
 ENEMY_FEATURES = 8
 CONTROL_FEATURES = 28
-OBSERVATION_VERSION = 8
+OBSERVATION_VERSION = 9
 ACTION_TIMING_VERSION = 3
 ACTION_COUNT = 36
 
@@ -45,6 +46,8 @@ def make_observation_space(version=OBSERVATION_VERSION):
     if version >= 8:
         fields['navigation'] = spaces.Box(-1,1,(PLAN_MOVEMENTS,NAV_FEATURES),np.float32)
         fields['decision'] = spaces.Box(0,1,(DECISION_FEATURES,),np.float32)
+    if version >= 9:
+        fields['game_context'] = spaces.Box(0, 1, (CONTEXT_FEATURES,), np.float32)
     return spaces.Dict(fields)
 
 
@@ -172,6 +175,9 @@ class ObservationBuilder:
         navigation = np.zeros((PLAN_MOVEMENTS,NAV_FEATURES),np.float32)
         decision = np.zeros(DECISION_FEATURES,np.float32)
         if self.planner is not None:
+            speeds = getattr(frame, 'movement_speeds', None)
+            if speeds is not None:
+                self.planner.set_speeds(*speeds)
             self.last_plan = self.planner.plan(frame, previous, control, state=state)
             planning = self.last_plan.features
             if self.last_plan.navigation is not None:navigation = self.last_plan.navigation
@@ -182,7 +188,8 @@ class ObservationBuilder:
                 "items": np.clip(items, -2, 2), "resources": np.clip(resources, 0, 1),
                 "enemies": np.clip(enemies, -2, 2), "control": np.clip(control, -2, 2),
                 "full_bullets": np.clip(full_bullets, -2, 2), "planning": planning,
-                'stage': stage_vector(frame.stage_id), 'navigation':navigation,'decision':decision}
+                'stage': stage_vector(frame.stage_id), 'navigation':navigation,'decision':decision,
+                'game_context': context_vector(frame)}
         self.last_build_ms = (clock_ns()-started_ns)/1e6
         return result
 

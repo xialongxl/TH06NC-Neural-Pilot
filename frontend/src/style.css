@@ -1893,3 +1893,11 @@ footer>div:first-child {
 .goal-options small { font-size: 11px; color: var(--muted); }
 .evaluation-goal { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 22px; color: var(--muted); font-size: 12px; }
 .evaluation-goal select { background: var(--inset); color: var(--text); padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.game-setup { border:0; border-top:1px solid var(--line); padding:20px 0 0; margin:24px 0 12px; min-width:0; }
+.game-setup legend { padding-right:12px; font-size:13px; font-weight:600; }
+.game-setup legend span { margin-left:12px; color:var(--muted); font-size:11px; font-weight:400; }
+.game-setup-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.game-setup-fields label { display:grid; gap:8px; font-size:12px; color:var(--muted); }
+.game-setup-fields select { width:100%; min-width:0; padding:11px 12px; border:1px solid var(--line); border-radius:8px; background:var(--inset); color:var(--text); font:inherit; }
+.game-setup p { color:var(--muted); font-size:11px; line-height:1.7; margin:12px 0 0; }
+@media (max-width:480px) { .game-setup-fields { grid-template-columns:1fr; } }

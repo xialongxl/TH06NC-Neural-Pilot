@@ -6,7 +6,8 @@ PHASE_NAMES={'combat':'关卡进行中','boss':'Boss 战','pause':'游戏已暂�
              'dialogue':'Boss 对话','script_wait':'剧情过场','title':'主菜单','difficulty':'选择难度',
              'character':'选择自机','shot':'选择机体','menu_transition':'菜单切换中',
              'result':'结算画面','dead':'自机中弹','unknown':'等待识别游戏状态',
-             'title_prompt':'标题画面','run_mode':'选择游戏模式','start_confirm':'确认开始游戏'}
+             'title_prompt':'标题画面','run_mode':'选择游戏模式','start_confirm':'确认开始游戏',
+             'practice_stage':'Practice 选择关卡'}
 COMBAT_PHASES={'combat','boss','dead'}
 
 def phase_of(frame):
@@ -35,7 +36,7 @@ def classify(*,active,engine_state=None,pause_flag=0,continue_flag=0,result_flag
     if result_flag:return PhaseState('result',False,in_stage)
     if not in_stage:
         if engine_state==1:
-            menus={2:'title_prompt',3:'title',9:'difficulty',11:'character',13:'shot',14:'run_mode',24:'start_confirm'}
+            menus={2:'title_prompt',3:'title',9:'difficulty',11:'character',13:'shot',14:'run_mode',22:'practice_stage',24:'start_confirm'}
             phase=menus.get(nc_screen,'menu_transition')
             ready_at=30 if nc_screen in (2,3) else 15
             return PhaseState(phase,False,False,selection,phase!='menu_transition' and menu_ticks>=ready_at)

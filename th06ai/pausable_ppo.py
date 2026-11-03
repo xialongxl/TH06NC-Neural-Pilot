@@ -76,6 +76,13 @@ class PausablePPO(PPO):
                     self.training_game.record_decision(decision,self.num_timesteps+1)
                 new_obs, rewards, dones, infos = env.step(actions)
             except SamplingInterrupted as interruption:
+                if interruption.episode_end is not None:
+                    self._last_episode_starts = np.ones(env.num_envs, dtype=bool)
+                    self._update_info_buffer([interruption.episode_end], self._last_episode_starts)
+                    if hasattr(callback, 'record_episode_end'):
+                        callback.record_episode_end(interruption.episode_end)
+                    self._last_obs = env.reset()
+                    continue
                 # Focus loss, a scene change or a native clock reset can
                 # interrupt an action. Re-observe without a fabricated sample.
                 if interruption.bootstrap_boundary:

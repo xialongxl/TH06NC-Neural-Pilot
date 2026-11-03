@@ -17,6 +17,7 @@ HISTORY_LIMIT = 180
 GPU_FIELDS = ("name", "temperature_c", "power_w", "memory_used", "memory_total", "utilization",
               "fan_percent", "memory_temperature_c")
 WORKER_FIELDS = ("training_seconds", "budget_seconds", "paused_seconds", "steps", "session_steps", "updates",
+                 'game_settings','requested_game_setup',
                  'stage_id', 'stage_label', 'stage_seconds', 'stage_changes', 'stage_transition',
                  'game_phase','player_shots','visible_lasers','goal','episode_bombs_used',
                  "episodes", "survival_seconds", "user_paused", "phase", "message", "model_source", "checkpoint",

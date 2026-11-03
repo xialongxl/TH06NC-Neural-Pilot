@@ -18,7 +18,8 @@ def observation(points, player):
             "resources": torch.zeros(count, 5), "enemies": torch.zeros(count, 32, 8),
             "control": torch.zeros(count, 28), "full_bullets": torch.zeros(count, 640, 10),
             "planning": torch.zeros(count, 18, 8), 'stage': torch.zeros(count, 8),
-            'navigation':torch.zeros(count,18,9),'decision':torch.zeros(count,8)}
+            'navigation':torch.zeros(count,18,9),'decision':torch.zeros(count,8),
+            'game_context':torch.zeros(count,19)}
 
 
 def test_padding_does_not_generate_nan_or_affect_output():

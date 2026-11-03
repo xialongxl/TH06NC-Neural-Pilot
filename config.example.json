@@ -7,6 +7,12 @@
   "input_backend": "auto",
   "inference_backend": "auto",
   "goal": "survival",
+  "game_setup": {
+    "mode": "story",
+    "difficulty": "normal",
+    "character": "reimu_a",
+    "stage": 1
+  },
   "safety": {
     "temperature_limit_c": 70,
     "memory_temperature_limit_c": 80,

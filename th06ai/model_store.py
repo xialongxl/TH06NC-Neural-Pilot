@@ -38,7 +38,7 @@ def inspect_checkpoint(path: Path, *, verify=False) -> Checkpoint:
         version = meta.get("policy_version") or 1
         state = ("加载时修复炸弹策略" if version < POLICY_VERSION else
                  "可直接续训" if version == POLICY_VERSION else "不支持的策略版本")
-    elif meta.get("format") in (1, 2, 3, 4, 5, 6, 7):
+    elif meta.get("format") in (1, 2, 3, 4, 5, 6, 7, 8):
         state = "不支持的策略版本" if (meta.get('policy_version') or 1) > POLICY_VERSION else "旧版可迁移"
     else:
         state = "不支持的观测格式"

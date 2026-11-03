@@ -13,6 +13,11 @@ def main():
     parser.add_argument("--minutes", type=float, default=None)
     parser.add_argument("--model", default=None)
     parser.add_argument('--goal',choices=['survival','nmnb'],help='survival：允许学习危急保命 B；nmnb：禁止 B')
+    parser.add_argument('--game-setup',help=argparse.SUPPRESS)
+    parser.add_argument('--difficulty',choices=['easy','normal','hard','lunatic','extra'])
+    parser.add_argument('--character',choices=['reimu_a','reimu_b','marisa_a','marisa_b'])
+    parser.add_argument('--game-mode',choices=['story','practice'])
+    parser.add_argument('--stage',type=int,help='Practice 起始关卡 1–6')
     parser.add_argument('--profile-kind',choices=['inference','latency'],default='inference',help='离线推理或只读控制链剖析')
     parser.add_argument('--profile-wait-combat',action='store_true',help='只读剖析等待手动解除暂停，不发送按键')
     parser.add_argument("--preview", action="store_true", help="只预览界面，不连接游戏或 GPU")
@@ -33,6 +38,18 @@ def main():
             raise SystemExit(1)
         return
     config = load_config()
+    from dataclasses import replace
+    from .game_settings import GameSetup, parse_setup
+    try:
+        setup = parse_setup(json.loads(args.game_setup)) if args.game_setup is not None else config.game_setup
+        if any(value is not None for value in (args.difficulty,args.character,args.game_mode,args.stage)):
+            values = (setup or GameSetup()).to_dict()
+            values.update({key:value for key,value in dict(difficulty=args.difficulty,character=args.character,
+                          mode=args.game_mode,stage=args.stage).items() if value is not None})
+            setup = parse_setup(values)
+        config = replace(config, game_setup=setup)
+    except (ValueError,TypeError) as error:
+        parser.error(str(error))
     if args.command in ("gui", "web"):
         from .web_console import launch
         launch(config, preview=args.preview, port=args.port, open_browser=not args.no_browser)

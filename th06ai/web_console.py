@@ -27,12 +27,21 @@ from .console_service import ConsoleError, ConsoleService
 from .console_stream import SnapshotBroker
 
 
+class GameSetupRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    mode: Literal['story','practice'] = 'story'
+    difficulty: Literal['easy','normal','hard','lunatic','extra'] = 'normal'
+    character: Literal['reimu_a','reimu_b','marisa_a','marisa_b'] = 'reimu_a'
+    stage: int = Field(default=1, ge=1, le=6)
+
+
 class StartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["resume", "train", "play", "evaluate", "check", "monitor", "calibrate"]
     minutes: float = Field(gt=0, le=60)
     model_id: str | None = None
     goal: Literal['survival','nmnb'] | None = None
+    game_setup: GameSetupRequest | None = None
 
 
 class ModelRequest(BaseModel):
@@ -132,7 +141,12 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
 
     @app.post("/api/sessions", status_code=202)
     def start(body: StartRequest):
-        return service.start(body.mode, body.minutes, body.model_id, **({'goal':body.goal} if body.goal is not None else {}))
+        options = {}
+        if body.goal is not None:
+            options['goal'] = body.goal
+        if body.game_setup is not None:
+            options['game_setup'] = body.game_setup.model_dump()
+        return service.start(body.mode, body.minutes, body.model_id, **options)
 
     @app.post("/api/session/pause")
     def pause(body: PauseRequest):

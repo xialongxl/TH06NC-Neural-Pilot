@@ -40,7 +40,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 │   ├── src/lib.rs             PyO3 ABI、连续碰撞、原生输入
 │   ├── src/planner.rs         整段拥有型搜索实现
 │   └── Cargo.toml / Cargo.lock / README.md
-├── tests/                     41 个现有测试模块及必要几何 NPZ 夹具
+├── tests/                     离线测试模块及必要几何 NPZ 夹具
 ├── tools/                     安装、构建、文档与源码审查工具
 ├── models/ / runs/            本机产物，Git 忽略
 └── .cache/ / .venv/ / research/ / tmp/  本机依赖、缓存和研究，Git 忽略
@@ -95,7 +95,8 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 
 | 文件 | 作用 | 相关契约 |
 | --- | --- | --- |
-| [observations.py](../th06ai/observations.py) | 观测空间、历史控制、编码及 action_keys | 观测 v8／36 动作 |
+| [observations.py](../th06ai/observations.py) | 观测空间、历史控制、编码及 action_keys | 观测 v9／36 动作 |
+| [game_settings.py](../th06ai/game_settings.py) | 请求设置、实际难度／自机／模式、菜单选择与 19 维身份编码 | GameSetup 与 Frame 读数分离 |
 | [objectives.py](../th06ai/objectives.py) | 库存相关资源权重、选取、Power 势函数 | 不越过碰撞约束 |
 | [rewards.py](../th06ai/rewards.py) | RewardTracker、资源预算、驻留／顶墙、奖励分项 | 奖励 v8、gamma |
 | [planner_spec.py](../th06ai/planner_spec.py) | 轻量规划常量及 PlanningConfig | 保护进程可安全导入 |
@@ -130,6 +131,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | --- | --- |
 | `main.tsx` | React 根、StrictMode、独立 benchmark 构建分流 |
 | `App.tsx` | 训练／模型／诊断页面、操作表单、布局与对话框 |
+| `GameSetupFields.tsx / gameSetup.ts / gameSetup.test.ts` | 游戏设置表单、持久化偏好、组合规则与实际身份显示回归 |
 | `useConsole.ts` | bootstrap、SSE 生命周期、控制请求、连接／日志状态 |
 | `stream.ts` | snapshot/delta/heartbeat 校验、引用协调、路径归并、曲线游标 |
 | `types.ts` | UI DTO 的 TypeScript 契约；不是全部原生 Frame |

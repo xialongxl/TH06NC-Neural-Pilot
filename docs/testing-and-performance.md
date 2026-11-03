@@ -43,6 +43,7 @@ npm.cmd run build
 | 输入／焦点 | `test_focus_hotkeys.py`, `test_input_latency.py`, `test_motion_calibration.py` | Shift 下快捷键失效、重复触发、切前台失败、时序定义错误 |
 | 采集 | `test_state_capture.py`, `test_resources.py`, `test_combat.py` | 跨帧误停、空弹池、错误资源／本体语义 |
 | 阶段／场景 | `test_game_phases.py`, `test_stage_awareness.py` | 对话混暂停、历史 Stage 残值、跨关污染 GAE |
+| 游戏设置／Practice | `test_game_settings.py` | 请求冒充真实难度、未解锁选关、沿用另一自机速度、结算伪造战斗样本、v8 迁移丢权重／Adam |
 | 观测 | `test_observations.py`, `test_control_observation.py`, `test_full_bullet_observation.py`, `test_observation_traces.py` | 维度变动、近场集合被改、缺失第65枚后弹、假轨迹 |
 | 几何／搜索 | `test_planning.py`, `test_enemy_contact.py`, `test_laser_geometry.py`, `test_planner_timing_recovery.py` | 穿弹、撞本体、漏激光、典型时刻覆盖早切键碰撞 |
 | 原生并发 | `test_rust_backend.py`, `test_native_search.py` | ABI／形状错误、借用越界、状态交叉污染、参考实现不一致 |

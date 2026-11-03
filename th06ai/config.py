@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from .planner_spec import PlanningConfig
+from .game_settings import GameSetup, parse_setup
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONSOLE_PORT = 18765
@@ -50,6 +51,7 @@ class Config:
     goal: str = 'survival'
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     planning: PlanningConfig = field(default_factory=PlanningConfig)
+    game_setup: GameSetup | None = None
 
     @property
     def game_path(self) -> Path:
@@ -60,6 +62,7 @@ def load_config(path: Path | str | None = None) -> Config:
     data = json.loads(Path(path or ROOT / "config.json").read_text(encoding="utf-8"))
     data["safety"] = SafetyConfig(**data.get("safety", {}))
     data["planning"] = PlanningConfig(**data.get("planning", {}))
+    data['game_setup'] = parse_setup(data.get('game_setup'))
     result = Config(**data)
     if result.device not in ("cpu", "cuda"):
         raise ValueError("device 必须是 cpu 或 cuda")

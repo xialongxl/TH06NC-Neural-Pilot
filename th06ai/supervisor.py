@@ -27,6 +27,7 @@ class GuardResult:
 def run_guard(config: Config, mode: str, minutes: float | None = None,
               model: str | None = None, *, run_dir: Path | None = None,
               goal: str | None = None,
+              game_setup=None,
               profile_kind: str | None = None,
               profile_wait_combat: bool = False,
               reader_factory: Callable | None = None, child_command: list[str] | None = None,
@@ -43,6 +44,8 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     import hashlib
     if goal is not None and goal not in ('survival','nmnb'):
         raise ValueError('不支持的训练目标')
+    from .game_settings import parse_setup
+    game_setup = parse_setup(game_setup if game_setup is not None else config.game_setup)
     if profile_kind is not None and profile_kind not in ('inference','latency'):
         raise ValueError('不支持的剖析类型')
 
@@ -148,6 +151,8 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                             command += ["--model", model]
                         if goal is not None and child_command is None:
                             command += ['--goal',goal]
+                        if game_setup is not None and child_command is None:
+                            command += ['--game-setup',json.dumps(game_setup.to_dict(),separators=(',',':'))]
                         if profile_kind is not None and child_command is None:
                             command += ['--profile-kind',profile_kind]
                         if profile_wait_combat and child_command is None:

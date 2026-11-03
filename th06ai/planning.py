@@ -173,6 +173,14 @@ class RollingPlanner:
             return rust_sweep(*args, **kwargs)
         return swept_segments(*args, **kwargs)
 
+    def set_speeds(self, fast, slow):
+        if not (np.isfinite(fast) and np.isfinite(slow) and 0 < slow <= fast < 20):
+            raise ValueError('自机速度无效')
+        if (fast, slow) != (self.fast_speed, self.slow_speed):
+            self.fast_speed, self.slow_speed = float(fast), float(slow)
+            self.velocities = np.vstack((DIRECTIONS*fast, DIRECTIONS*slow))
+            self.reset_timing()
+
     def reset_timing(self):
         self.tail_times.clear()
         self.confirmation_times.clear()

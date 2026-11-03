@@ -9,8 +9,9 @@
   "configuration": {"file": "config.json", "example": "config.example.json", "dotenv_auto_load": false},
   "transport": {"controls": "same-origin REST with X-Console-Token", "display": "incremental SSE JSON v2", "websocket": false, "database": null},
   "ports": {"console": 18765, "preview": 18766},
-  "versions": {"observation": 8, "reward": 8, "policy": 2, "planner": 7, "action_timing": 3, "native": 2, "native_search": 1, "ui_protocol": 2},
+  "versions": {"observation": 9, "reward": 8, "policy": 2, "planner": 7, "action_timing": 3, "native": 2, "native_search": 1, "ui_protocol": 2},
   "components": [
+    {"id": "game_settings", "path": "th06ai/game_settings.py", "symbols": ["GameSetup", "decode_identity", "menu_key", "context_vector"], "depends_on": []},
     {"id": "cli", "path": "th06ai/__main__.py", "symbols": ["main"], "depends_on": ["configuration", "lifecycle", "guard"]},
     {"id": "configuration", "path": "th06ai/config.py", "symbols": ["Config", "SafetyConfig", "load_config"], "depends_on": []},
     {"id": "lifecycle", "path": "th06ai/console_lifecycle.py", "symbols": ["open_console", "shutdown_console"], "depends_on": ["api"]},
@@ -46,7 +47,7 @@
   ],
   "test_groups": {
     "protection": ["tests/test_safety.py", "tests/test_supervisor.py", "tests/test_lease.py", "tests/test_focus_hotkeys.py"],
-    "state": ["tests/test_state_capture.py", "tests/test_resources.py", "tests/test_combat.py", "tests/test_enemy_contact.py", "tests/test_laser_geometry.py", "tests/test_game_phases.py", "tests/test_stage_awareness.py", "tests/test_motion_calibration.py"],
+    "state": ["tests/test_state_capture.py", "tests/test_resources.py", "tests/test_combat.py", "tests/test_enemy_contact.py", "tests/test_laser_geometry.py", "tests/test_game_phases.py", "tests/test_stage_awareness.py", "tests/test_motion_calibration.py", "tests/test_game_settings.py"],
     "observation": ["tests/test_observations.py", "tests/test_control_observation.py", "tests/test_full_bullet_observation.py", "tests/test_observation_traces.py"],
     "planner": ["tests/test_planning.py", "tests/test_planner_timing_recovery.py", "tests/test_native_search.py", "tests/test_rust_backend.py", "tests/test_stage5_upgrade.py"],
     "reward_policy": ["tests/test_rewards.py", "tests/test_reward_balance.py", "tests/test_behavior_objective.py", "tests/test_power_progress.py", "tests/test_graze_principle.py", "tests/test_policy.py", "tests/test_bomb_policy.py"],

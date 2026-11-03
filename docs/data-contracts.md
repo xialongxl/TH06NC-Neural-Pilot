@@ -7,7 +7,7 @@
 | 契约 | 当前值 | 真正来源 |
 | --- | ---: | --- |
 | 游戏身份 | build 25306795 + 固定 SHA-256 | `native.py:BUILD_ID/SHA256/SIGNATURES` |
-| 观测布局 | 8 | `observations.py:OBSERVATION_VERSION` |
+| 观测布局 | 9 | `observations.py:OBSERVATION_VERSION` |
 | 奖励语义 | 8 | `rewards.py:REWARD_VERSION` |
 | 策略／炸弹结构 | 2 | `policy_spec.py:POLICY_VERSION` |
 | 规划语义 | 7 | `planner_spec.py:PLANNER_VERSION` |
@@ -31,6 +31,7 @@
 | 坐标范围 | `bounds=(low_x,low_y,width,height)`；玩家上界为 low+width/height；显示场地总宽高另按 width+2*low 计算 |
 | 时序 | `observed_at` 为 monotonic 秒；三个 `*_ns` 字段为 perf-counter 纳秒，不混用 epoch 时间 |
 | 关卡 | `stage_id` 为 1–7 或 None；7 代表 EX；`stage_raw` 保留原始读数 |
+| 游戏设置 | `difficulty,character,game_mode` 为真实身份或 None；`movement_speeds` 为当前高速／低速或 None；请求值不冒充读数 |
 | 普通弹 | `bullets (N,3)`：pool slot,x,y；`bullet_sizes (N,2)`：width,height；可选 `bullet_states (N,)` |
 | 道具 | `items (N,6)`：slot,x,y,type,vx,vy；来自 1024 槽池 |
 | 攻击目标 | `enemies (N,8)`：slot,x,y,HP,maxHP,phaseHP参考,战斗flags,Boss |
@@ -60,7 +61,7 @@ graze: None 或 0..999999
 
 `graze=None` 可以表示原生计数未启用。点道具计数有已处理的 16 位回绕情况。道具类型为 0–6：P、点、大 P、B、满 P、残机、星等分值道具；以实际本版解码和 `objectives.item_weights` 为准，不能套用其他游戏的枚举。
 
-## 3. 观测 v8 的十二个键
+## 3. 观测 v9 的十二个键
 
 `ObservationBuilder.build()` 返回不带 batch 维的 float32 数组。单环境 PPO／PolicyRunner 再补 batch=1。
 
@@ -77,6 +78,7 @@ graze: None 或 0..999999
 | `stage` | `(8,)` | 0..1 | Stage1–6/EX one-hot7 + known |
 | `navigation` | `(18,9)` | -1..1 | 安全类别、回退、未来出口等 |
 | `decision` | `(8,)` | 0..1 | 当前决策上下文及目标可用性 |
+| `game_context` | `(19,)` | 0..1 | 难度5+known、自机4+known、模式4+known、高低速除20+known；追加在融合层末尾 |
 
 padding 的 valid 为 0；集合池化必须用它过滤。未知运动的速度数值可以是 0，但必须由 known 位区分“实测静止”。重复同 tick 构建不能抹掉上一不同 tick 的运动估计。
 
@@ -147,7 +149,9 @@ models/
 
 元数据核心键包括 `game_sha256,model_sha256,steps,gradient_updates,format,reward_version,planner_version,action_timing_version,policy_version,source_checkpoint,migrated_from,training_goal`。`gradient_updates` 镜像 SB3 `_n_updates`，不能直接等同采样批次数或每个 optimizer.step 次数。
 
-观测 v1–v7 走显式迁移：兼容参数原样复制，追加融合列从零影响开始，兼容 Adam 状态保留。策略 v2 的 B 分支不反复重置。奖励或目标变化通常用于后续 rollout，不要求删除旧权重；是否值得独立新训练应是明确实验选择。
+观测 v1–v8 走显式迁移：兼容参数原样复制，追加融合列从零影响开始，兼容 Adam 状态保留。v8 的 743 列融合权重扩到 762 列，新增 19 列及其 Adam 历史为零，初始动作概率与 value 保持一致。策略 v2 的 B 分支不反复重置。奖励或目标变化通常用于后续 rollout，不要求删除旧权重；是否值得独立新训练应是明确实验选择。
+
+`game_settings` 同时进入动作、回合和评估记录；`requested_game_setup` 单独记录请求。Practice 选关的 `source=menu` 只是菜单高亮，不是进行中的关卡身份。Practice 结算通过 `SamplingInterrupted.episode_end` 结束当前片段，切断 GAE 且不 bootstrap、不伪造零奖励战斗样本；结算不自动宣称完整通关。
 
 ## 6. 运行目录与训练证据
 

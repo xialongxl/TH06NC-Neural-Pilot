@@ -17,6 +17,8 @@ from .combat import ENEMY_POOL, ENEMY_CAPACITY, ENEMY_STRIDE, BOSS_POINTERS, dec
 from .input_timing import clock_ns
 from .lasers import LASER_START,LASER_CAPACITY,LASER_STRIDE,decode_lasers
 from .stage import STAGE_RVA, decode_stage
+from .game_settings import (DIFFICULTY_RVA, CHARACTER_RVA, PRACTICE_UNLOCK_RVA,
+                            decode_identity, movement_speeds)
 
 SHA256 = "48630a42a2eb6762d0db2a7e0d151203efbe67220fef7d2f9d0d51857928ac82"
 BUILD_ID = "25306795"
@@ -88,6 +90,13 @@ SIGNATURES = {
     0x407D1: bytes.fromhex('83 b9 b0 36 00 00 00'),  # message index gate
     0x431D7: bytes.fromhex('8b 05 f7 98 4f 00'),  # native STAGE %d / FINAL / EXTRA display
     0x3F0D3: bytes.fromhex('8b 05 fb d9 4f 00'),  # stage-specific resource selection, index-1
+    0x4CAEE: bytes.fromhex('89 05 1c 09 4f 00'),  # difficulty chosen from menu
+    0x4CD28: bytes.fromhex('88 05 a2 fd 4e 00'),  # selected character
+    0x4D32A: bytes.fromhex('88 05 a1 f7 4e 00'),  # selected shot
+    0x4F34F: bytes.fromhex('88 15 af e0 4e 00'),  # Practice menu flag -> active game
+    0x57020: bytes.fromhex('c7 81 b0 68 01 00 16 00 00 00'),  # Practice stage screen
+    0x6A861: bytes.fromhex('f3 0f 10 b7 60 78 00 00'),  # active fast movement speed
+    0x6A854: bytes.fromhex('f3 0f 10 b7 64 78 00 00'),  # active focused movement speed
 }
 BULLET_DTYPE = np.dtype({"names": ["x", "y", "state", "width", "height"],
                          "formats": ["<f4", "<f4", "<u2", "<f4", "<f4"],
@@ -179,6 +188,10 @@ class Frame:
     stage_id: int | None = None
     stage_raw: int | None = None
     bullet_states: np.ndarray | None = None
+    difficulty: str | None = None
+    character: str | None = None
+    game_mode: str | None = None
+    movement_speeds: tuple[float, float] | None = None
 
 
 @dataclass
@@ -195,6 +208,9 @@ class ControlSample:
     input_observed_ns: int
     capture_started_ns: int
     capture_finished_ns: int
+    difficulty: str | None = None
+    character: str | None = None
+    game_mode: str | None = None
 
 
 class _StateSnapshot:
@@ -250,9 +266,10 @@ class GameReader:
         player = p.read(PLAYER+0x7710, 0x1A0)
         x,y = struct.unpack_from('<ff',player,0x20)
         state = player[0x188]
-        flags = p.read(NC_PAUSE,10)
+        flags = p.read(NC_PAUSE,21)
         engine = struct.unpack('<i',p.read(ENGINE_STATE,4))[0]
-        stage = decode_stage(struct.unpack('<i',p.read(STAGE_RVA,4))[0]) if engine==2 else None
+        context = p.read(CHARACTER_RVA,8) if engine==2 else None
+        stage = decode_stage(struct.unpack_from('<i',context,4)[0]) if context is not None else None
         hud = p.read_indirect(HUD_POINTER,0x3668,0x4C) if engine==2 and hasattr(p,'read_indirect') else None
         message = struct.unpack_from('<i',hud,0x48)[0] if hud is not None else -1
         phase = classify(active=engine==2,engine_state=engine,player_state=state,
@@ -266,6 +283,12 @@ class GameReader:
             raise RuntimeError('轻量自机状态读取异常')
         sample = ControlSample(tick,x,y,state,phase.paused,phase.stage_active,stage,phase.phase,
                                bits,observed,started,clock_ns())
+        if engine == 2:
+            try:
+                sample.difficulty, sample.character, sample.game_mode = decode_identity(
+                    struct.unpack_from('<i', flags, 16)[0], context[0], context[1], flags[4], flags[5], flags[20])
+            except (OSError, RuntimeError, ValueError, IndexError, struct.error):
+                pass
         observer = getattr(self, 'control_observer', None)
         if observer is not None:
             try:observer(sample)
@@ -380,6 +403,15 @@ class GameReader:
         frame.bullet_states = states[visible].copy()
         shots=np.ndarray((80,),dtype='<u2',buffer=p.read(PLAYER+0x410,80*0x170),offset=0x10,strides=(0x170,))
         frame.player_shots=int(np.count_nonzero(shots==1))
+        frame.movement_speeds = movement_speeds(player)
+        try:
+            context = p.read(DIFFICULTY_RVA, 5)
+            char = p.read(CHARACTER_RVA, 2)
+            flags = p.read(NC_PAUSE, 10)
+            frame.difficulty, frame.character, frame.game_mode = decode_identity(
+                struct.unpack_from('<i', context)[0], *char, flags[4], flags[5], context[4])
+        except (OSError, RuntimeError, ValueError, struct.error):
+            pass  # Identity is unknown, not a new empty-bullet / cross-tick STOP.
         return self._complete_frame(frame, started_ns, input_bits, input_observed_ns)
 
     def _complete_frame(self, frame, started_ns, input_bits, input_observed_ns):
@@ -404,6 +436,19 @@ class GameReader:
                     evidence.update(menu_screen=struct.unpack('<i',p.read(NC_MENU+0x168B0,4))[0],
                                     menu_selection=struct.unpack('<i',p.read(NC_MENU+0x28,4))[0],
                                     menu_ticks=struct.unpack('<i',p.read(NC_MENU+0x9638,4))[0])
+                    menu_flags = p.read(NC_MENU+0x168D1, 3)
+                    evidence['practice_menu'] = menu_flags[0] == 1
+                    if evidence['menu_screen'] == 22:
+                        diff = struct.unpack('<i', p.read(DIFFICULTY_RVA, 4))[0]
+                        char, shot = p.read(CHARACTER_RVA, 2)
+                        if 0 <= diff < 4 and char in (0,1) and shot in (0,1):
+                            count = p.read(PRACTICE_UNLOCK_RVA+(char*2+shot)*24+diff, 1)[0]
+                            evidence['practice_stage_count'] = min(count, 5 if diff == 0 else 6)
+                            difficulty, character, _ = decode_identity(diff,char,shot,1,0,0)
+                            selection = evidence['menu_selection']
+                            evidence['menu_game_settings'] = {'difficulty':difficulty,'character':character,
+                                'mode':'practice', 'stage':selection+1 if 0 <= selection < 6 else None,
+                                'source':'menu', 'movement_speeds':None}
                 state=classify(active=frame.stage_active,player_state=frame.state,
                     boss=bool(len(frame.enemies) and np.any(frame.enemies[:,7])),
                     engine_state=engine,pause_flag=flags[0],continue_flag=flags[1],result_flag=flags[6],
@@ -419,6 +464,8 @@ class GameReader:
         frame.phase_evidence=evidence
         if not frame.stage_active or evidence.get('engine_state') != 2:
             frame.stage_id = None
+            frame.difficulty = frame.character = frame.game_mode = None
+            frame.movement_speeds = None
         frame.capture_started_ns = started_ns
         frame.capture_finished_ns = clock_ns()
         frame.input_bits, frame.input_observed_ns = input_bits, input_observed_ns

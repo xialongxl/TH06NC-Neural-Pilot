@@ -36,6 +36,7 @@ def action_row(info, steps):
         'next_lasers': info.get('next_lasers', []),
         'unsampled_combat_seconds': info.get('unsampled_combat_seconds'),
         **{'input_' + key: info.get('input_latency', {}).get(key) for key in ('version', 'observation_started_ns', 'send_started_ns', 'send_completed_ns', 'plan_started_ns', 'plan_completed_ns', 'policy_started_ns', 'policy_completed_ns', 'observation_to_send_ms', 'policy_ms', 'post_plan_to_send_ms', 'send_ms', 'key_switch_ms', 'input_events', 'game_input_state', 'game_input_match_ms', 'first_motion_observed_ms', 'observed_game_input_bits', 'observation_build_ms', 'next_observation_build_ms', 'read_total_ms', 'observation_to_send_p95_ms', 'policy_p95_ms', 'send_p95_ms', 'observation_native_tick', 'game_input_match_tick', 'post_plan_to_input_ms')},
+        'game_settings': info.get('game_settings'),
         'native_tick_before': info.get('native_tick_before'),
         'native_tick_delta': info.get('native_tick_delta'),
         'native_tick_dispatch': info.get('native_tick_dispatch'),
@@ -110,6 +111,7 @@ def serialized_row(row):
 def episode_row(info, steps, elapsed=None):
     diagnostics = info.get('episode_diagnostics',{})
     return {'steps':int(steps),'elapsed_seconds':elapsed,'survival_seconds':info.get('survival_seconds',0),
+            'game_settings':info.get('game_settings'),
             'died':bool(info.get('died')),'episode_end_reason':info.get('episode_end_reason'),
             'reward_version':info.get('reward_version',REWARD_VERSION),
             'stage_id':info.get('stage_id',diagnostics.get('stage_id')),

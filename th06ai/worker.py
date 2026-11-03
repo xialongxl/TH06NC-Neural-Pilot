@@ -190,6 +190,7 @@ def main():
     parser.add_argument("--minutes", type=float, required=True)
     parser.add_argument("--model")
     parser.add_argument('--goal',choices=['survival','nmnb'])
+    parser.add_argument('--game-setup')
     parser.add_argument('--profile-kind',choices=['inference','latency'],default='inference')
     parser.add_argument('--profile-wait-combat',action='store_true')
     parser.add_argument("--lease-name", required=True)
@@ -199,6 +200,9 @@ def main():
         raise RuntimeError("运行目录必须位于本项目 runs 中")
     config = load_config()
     config = replace(config,goal=args.goal or ('nmnb' if args.mode=='evaluate' else config.goal))
+    if args.game_setup is not None:
+        from .game_settings import parse_setup
+        config = replace(config, game_setup=parse_setup(json.loads(args.game_setup)))
     lease = SharedLease(args.lease_name)
     heartbeat = Heartbeat(run_dir, lease, config.safety)
     env = None
@@ -273,7 +277,10 @@ def main():
                             env.refresh_decision()
                             env.record_decision(decision)
                             obs, _, died, timeout, _ = env.step(int(action))
-                        except SamplingInterrupted:
+                        except SamplingInterrupted as interruption:
+                            if interruption.episode_end is not None:
+                                obs, _ = env.reset()
+                                continue
                             env.training_control.gate(env)
                             obs = env.builder.build(env.current)
                             continue
