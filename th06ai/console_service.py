@@ -15,7 +15,7 @@ import time
 from .config import Config, DEFAULT_CONSOLE_PORT, ROOT
 from .control import set_paused
 from .files import atomic_json, new_run, read_json
-from .model_store import inspect_checkpoint, list_checkpoints
+from .model_store import inspect_checkpoint, CheckpointCatalog
 from .observations import OBSERVATION_VERSION
 from .planner_spec import PLANNER_VERSION
 from .rewards import REWARD_VERSION
@@ -105,6 +105,12 @@ class ConsoleService:
         self.pending_run, self.pending_mode = None, None
         self._lock = threading.RLock()
         self._catalog, self._catalog_at = [], -math.inf
+        self._catalog_cache = CheckpointCatalog(self.root / 'models')
+        self._catalog_scan_lock = threading.Lock()
+        self._catalog_refreshing = False
+        self._catalog_thread = None
+        self._catalog_revision = None
+        self._catalog_error = None
         self._history, self._history_key = [], None
         self._json_cache, self._text_cache = {}, {}
         self._model_view = []
@@ -112,22 +118,50 @@ class ConsoleService:
         self._safety = asdict(config.safety)
         saved = read_json(self.root / "ui_state.json").get("selected_model")
         self.selected_path = Path(saved).resolve() if isinstance(saved, str) else None
-        self.refresh_models()
+        self.refresh_models(force=True)
 
     @staticmethod
     def model_id(path):
         return hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:20]
 
     def refresh_models(self, *, force=False):
+        if force:
+            return self._scan_models()
+        revision = self._file_stamp(self.root / 'models/catalog_revision.json')
         with self._lock:
-            if force or time.monotonic()-self._catalog_at > 8:
-                directory = (self.root / "models").resolve()
-                self._catalog = [entry for entry in list_checkpoints(directory)
-                                 if entry.path.is_relative_to(directory)]
-                self._catalog_at = time.monotonic()
-                if not any(c.path == self.selected_path for c in self._catalog):
-                    self.selected_path = next((c.path for c in self._catalog if c.usable), None)
+            if not self._catalog_refreshing and (revision != self._catalog_revision or time.monotonic()-self._catalog_at > 8):
+                self._catalog_refreshing = True
+                self._catalog_thread = threading.Thread(target=self._background_scan, name='model-catalog', daemon=True)
+                self._catalog_thread.start()
             return self._catalog
+
+    def _scan_models(self):
+        with self._catalog_scan_lock:
+            return self._publish_scan()
+
+    def _publish_scan(self):
+        revision = self._file_stamp(self.root / 'models/catalog_revision.json')
+        entries = self._catalog_cache.scan()
+        with self._lock:
+            self._catalog = entries
+            self._catalog_at = time.monotonic()
+            self._catalog_revision = revision
+            self._catalog_error = None
+            if not any(c.path == self.selected_path for c in entries):
+                self.selected_path = next((c.path for c in entries if c.usable), None)
+            return self._catalog
+
+    def _background_scan(self):
+        try:
+            self._scan_models()
+        except Exception as error:
+            with self._lock:
+                self._catalog_error = str(error)
+                self._catalog_at = time.monotonic()
+                self._catalog_revision = self._file_stamp(self.root / 'models/catalog_revision.json')
+        finally:
+            with self._lock:
+                self._catalog_refreshing = False
 
     def models(self):
         catalog = self.refresh_models()
@@ -177,12 +211,16 @@ class ConsoleService:
         return value
 
     def select_model(self, model_id):
+        catalog = self.refresh_models(force=True)
         with self._lock:
-            entry = next((c for c in self.refresh_models(force=True) if self.model_id(c.path) == model_id), None)
+            entry = next((c for c in catalog if self.model_id(c.path) == model_id), None)
             if entry is None:
                 raise ConsoleError("模型不存在，请刷新模型库", 404)
             if not entry.usable:
                 raise ConsoleError(entry.compatibility)
+            checked = inspect_checkpoint(entry.path)
+            if not checked.path.is_relative_to((self.root / 'models').resolve()) or not checked.usable:
+                raise ConsoleError('模型路径或元数据已变化，请刷新模型库')
             self.selected_path = entry.path
             if not self.preview:
                 atomic_json(self.root / "ui_state.json", {"selected_model": str(entry.path)})
@@ -299,6 +337,8 @@ class ConsoleService:
             try:
                 from .native import GameReader
                 reader=GameReader(self.config.game_path)
+                if self.config.capture_backend != 'auto':
+                    reader.process.configure_reads(self.config.capture_backend)
                 f=reader.read()
                 self.last_game_probe={'available':True,'phase':f.phase,'label':PHASE_NAMES.get(f.phase,'等待识别'),
                     'game_settings':observed_settings(f),
@@ -333,6 +373,7 @@ class ConsoleService:
             return {'message':'计算后端已保存，下次会话生效；未启动训练'}
 
     def start(self, mode, minutes, model_id=None, goal=None, game_setup=None):
+        catalog = self.refresh_models(force=True) if mode in {'resume', 'play', 'evaluate'} else []
         with self._lock:
             self._writable()
             if self._closing:
@@ -342,11 +383,13 @@ class ConsoleService:
                 raise ConsoleError("已有会话运行中，请暂停/恢复，或先结束当前会话")
             model = None
             if mode in {"resume", "play", "evaluate"}:
-                entry = next((c for c in self.refresh_models(force=True)
+                entry = next((c for c in catalog
                               if self.model_id(c.path) == model_id), None)
                 if entry is None:
                     raise ConsoleError("请先选择一个可用模型", 422)
                 checked = inspect_checkpoint(entry.path, verify=True)
+                if not checked.path.is_relative_to((self.root / 'models').resolve()):
+                    raise ConsoleError('模型路径已超出项目目录')
                 if not checked.usable:
                     raise ConsoleError(checked.compatibility)
                 model = entry.path

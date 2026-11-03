@@ -109,7 +109,10 @@ class PausablePPO(PPO):
                     with torch.no_grad():
                         terminal_value = self.policy.predict_values(terminal_obs)[0]
                     rewards[idx] += self.gamma * terminal_value
+            buffer_started = clock_ns()
             rollout_buffer.add(self._last_obs, actions, rewards, self._last_episode_starts, values, log_probs)
+            if hasattr(self.training_game, 'record_pre_policy_work'):
+                self.training_game.record_pre_policy_work(buffer_add_ms=(clock_ns()-buffer_started)/1e6)
             self._last_obs = new_obs
             self._last_episode_starts = dones
             # The environment action has already happened. Keep its actual
@@ -117,7 +120,11 @@ class PausablePPO(PPO):
             # or the user finishes; otherwise counters/logs get one step ahead
             # of the saved partial rollout.
             callback.update_locals(locals())
-            if not callback.on_step():
+            callback_started = clock_ns()
+            continuing = callback.on_step()
+            if hasattr(self.training_game, 'record_pre_policy_work'):
+                self.training_game.record_pre_policy_work(callback_ms=(clock_ns()-callback_started)/1e6)
+            if not continuing:
                 return False
         with torch.no_grad():
             values = self.policy.predict_values(obs_as_tensor(self._last_obs, self.device))

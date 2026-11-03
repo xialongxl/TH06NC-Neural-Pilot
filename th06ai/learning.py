@@ -10,7 +10,7 @@ import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 
-from .config import Config, ROOT
+from .config import Config, ROOT, DiagnosticsConfig
 from .files import atomic_json, timestamp
 from .native import SHA256
 from .policy import BulletEncoder, ResourcePolicy, POLICY_VERSION, BOMB_PRIOR
@@ -228,6 +228,11 @@ class TrainingCallback(BaseCallback):
         self.finish_reason = "本次时长已完成"
         self.rollout_checkpoint = None
         self.rollout_first_step = None
+        self.diagnostics_config = getattr(env, 'diagnostics_config', DiagnosticsConfig())
+        self.submitted_traces = set()
+        self.last_checkpoint_rollout = 0
+        self.update_started_ns = None
+        self.sampling_started_ns = None
 
     def elapsed(self):
         return self.control.active_seconds if self.control else time.monotonic() - self.started
@@ -266,28 +271,37 @@ class TrainingCallback(BaseCallback):
 
     def _on_rollout_start(self):
         self.lease()
+        if self.update_started_ns is not None:
+            self.status(ppo_update_and_callbacks_ms=(clock_ns()-self.update_started_ns)/1e6)
         self.rollout_first_step = int(self.num_timesteps)+1
         elapsed = self.elapsed()
         # Each completed update is saved while the game remains paused.
         # Don't overwrite latest with an unchanged checkpoint at session start.
-        if self.model._n_updates > self.last_checkpoint_updates:
+        if (self.model._n_updates > self.last_checkpoint_updates and
+                self.rollouts-self.last_checkpoint_rollout >= self.diagnostics_config.checkpoint_every_rollouts):
+            checkpoint_started = clock_ns()
             path = save_model(self.model, ROOT / "models" / "latest.zip", self.run_dir, self.num_timesteps)
             self.rollout_checkpoint = str(path) if path else None
             self.last_checkpoint_updates = self.model._n_updates
             self.last_checkpoint = elapsed
-            self.status(checkpoint=str(path or ROOT / "models" / "latest.zip"))
+            self.last_checkpoint_rollout = self.rollouts
+            self.status(checkpoint=str(path or ROOT / "models" / "latest.zip"),
+                        checkpoint_save_ms=(clock_ns()-checkpoint_started)/1e6)
         if self.control:
             window = getattr(getattr(self.game, "reader", None), "window", None)
             if window is not None and not window.focused:
                 self.control.request_pause("游戏失去焦点，已自动暂停；点击恢复继续当前回合")
             self.control.gate(self.game, resume_game=False)
+        resume_started = clock_ns()
         self.game.resume_for_user() if hasattr(self.game, "resume_for_user") else self.game.resume()
         # Menu transitions consume real frames; collect the next action from
         # a fresh observation, not the frame saved before the PPO update.
         observation = self.game.builder.build(self.game.current)
         self.model._last_obs = {name: value[None, ...] for name, value in observation.items()}
         self.status(phase="神经网络采样", updates=self.model._n_updates,
-                    policy_diagnostics=getattr(self.model, "last_policy_diagnostics", {}))
+                    policy_diagnostics=getattr(self.model, "last_policy_diagnostics", {}),
+                    rollout_resume_and_observe_ms=(clock_ns()-resume_started)/1e6)
+        self.sampling_started_ns = clock_ns()
 
     def _on_step(self):
         self.lease()
@@ -296,7 +310,11 @@ class TrainingCallback(BaseCallback):
             if "action" in info:
                 self.bomb_requests += int(info["action"] >= 18)
                 self.bombs_used += info.get("bomb_consumed", 0)
-                self.action_rows.append(action_row(info, int(self.num_timesteps)))
+                diagnostics = getattr(self.game, 'diagnostics', None)
+                if diagnostics is not None:
+                    diagnostics.record_action(info, int(self.num_timesteps))
+                else:
+                    self.action_rows.append(action_row(info, int(self.num_timesteps)))
         for done, info in zip(self.locals.get("dones", []), self.locals.get("infos", [])):
             if done:
                 self.record_episode_end(info)
@@ -339,6 +357,9 @@ class TrainingCallback(BaseCallback):
         Traces are diagnostic; an I/O failure must not kill game training.
         """
         buffer = self.model.rollout_buffer
+        settings = self.diagnostics_config
+        if settings.trajectory == 'off' or self.rollouts % settings.trajectory_every_rollouts:
+            return
         count = buffer.buffer_size if buffer.full else buffer.pos
         gae_ready = bool(getattr(buffer, 'gae_ready', buffer.full))
         if not count or self.rollout_first_step is None:
@@ -346,10 +367,12 @@ class TrainingCallback(BaseCallback):
         first_step = self.rollout_first_step
         last_step = first_step+count-1
         path = self.run_dir / f"observations-{first_step:09d}-{last_step:09d}.npz"
-        if path.exists():
+        if path.exists() or path.name in self.submitted_traces:
             return
         try:
-            payload = {"obs_"+name: values[:count].copy() for name, values in buffer.observations.items()}
+            trace_started = clock_ns()
+            payload = ({"obs_"+name: values[:count].copy() for name, values in buffer.observations.items()}
+                       if settings.trajectory == 'full' else {})
             for name in ("actions", "rewards", "values", "log_probs", "episode_starts"):
                 payload[name] = getattr(buffer, name)[:count].copy()
             # A finish request can interrupt collection before GAE runs.
@@ -371,21 +394,37 @@ class TrainingCallback(BaseCallback):
                     "policy_gradient_epochs": int(self.model._n_updates),
                     "bullet_inputs": {"near": NEAREST, "full": FULL_BULLETS, "full_fields": FULL_BULLET_FIELDS},
                     "gae_ready": gae_ready,
-                    "policy_checkpoint": self.rollout_checkpoint or getattr(self.model, "source_checkpoint", None),
+                    'policy_checkpoint': ((self.rollout_checkpoint or getattr(self.model, 'source_checkpoint', None))
+                                          if self.model._n_updates == self.last_checkpoint_updates else None),
+                    'last_saved_checkpoint': self.rollout_checkpoint or getattr(self.model, 'source_checkpoint', None),
+                    'trajectory_level': settings.trajectory,
                     "note": "Actual on-policy buffer before its update; not demonstrations or independent evaluation. Rewards may include time-limit value bootstrapping."}, ensure_ascii=False))
-            pending = path.with_suffix(".pending.npz")
-            np.savez_compressed(pending, **payload)
-            pending.replace(path)
+            diagnostics = getattr(self.game, 'diagnostics', None)
+            if diagnostics is not None:
+                if diagnostics.record_trace(path.name, payload, settings.compression_level):
+                    self.submitted_traces.add(path.name)
+                else:
+                    self.status(trajectory_error='诊断队列已满，当前轨迹未写入；死亡记录仍独立保留')
+            else:
+                pending = path.with_suffix(".pending.npz")
+                np.savez_compressed(pending, **payload)
+                pending.replace(path)
+            self.status(trajectory_prepare_ms=(clock_ns()-trace_started)/1e6, trajectory_level=settings.trajectory)
         except (OSError, ValueError) as error:
             self.status(trajectory_error=str(error))
 
     def _on_rollout_end(self):
+        if self.sampling_started_ns is not None:
+            self.status(rollout_sampling_wall_ms=(clock_ns()-self.sampling_started_ns)/1e6)
+        pause_started = clock_ns()
         self.pause_game()
+        self.status(rollout_pause_ms=(clock_ns()-pause_started)/1e6)
         self.flush_actions()
         self.flush_observations()
         if self.control:
             self.control.gate(self.game, resume_game=False)
         self.rollouts += 1
+        self.update_started_ns = clock_ns()
         self.status(phase="PPO 更新神经网络", updates=self.model._n_updates)
 
     def _on_training_end(self):

@@ -64,11 +64,13 @@ CUDA wheel 下载体积较大，缓存会同时出现分片和拼接文件。存
 | `device` | cuda 或 cpu | CUDA 不可用时不静默降级 |
 | `input_backend` | dataclass 默认 python；示例 auto | 普通模拟输入实现选择 |
 | `inference_backend` | auto / eager / cuda_graph | auto 只针对图捕获限制回退 CUDA eager |
+| `capture_backend` | auto / python / rust，默认 auto | auto 保留复用的大块缓冲，仅对小块状态做可用的 Rust 合并；rust 显式启用全批量拥有型路径 |
 | `goal` | survival / nmnb | NMNB 禁 B；不是通关认证 |
 | `game_setup` | 可选对象 | mode／difficulty／character／stage；控制台启动请求可明确指定本次设置 |
 | `planning.enabled` | true | 缓存规划是否参与决策 |
 | `planning.beam_width` | 2，1..4 | 后续搜索 beam；当前移动仍 18 种 |
 | `planning.collision_backend` | dataclass 默认 python；示例 auto | rust/auto 在可用时启用相应原生路径 |
+| `diagnostics` | 可选对象，默认完整记录／每轮保存 | 轨迹级别、压缩与保存间隔，见[性能与诊断配置](performance-tuning.md) |
 
 真实默认值要区分 dataclass、示例配置、已有本机 JSON 和 UI 会话参数，不可只看其中一个就断言所有部署相同。
 

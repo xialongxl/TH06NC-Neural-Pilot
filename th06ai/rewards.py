@@ -13,7 +13,7 @@ from .combat import damage_feedback, aim_potential
 from .risk import collision_risk, visible_threat
 from .objectives import power_potential
 
-REWARD_VERSION = 8
+REWARD_VERSION = 9
 # Nominal 30 decisions/sec: an effective horizon near 33 sec, instead of 6.7.
 DISCOUNT = .999
 SURVIVAL_PER_SECOND = .05
@@ -122,7 +122,11 @@ def item_potential(frame: Frame, threat: float, raw_credit: float) -> float:
     bottom = frame.bounds[1] + frame.bounds[3]
     remaining_ticks = (bottom - frame.items[:, 2]) / np.maximum(frame.items[:, 5], .01)
     reachable = np.ones(len(distance))
-    reachable[falling] = np.clip(remaining_ticks[falling] * 4 / np.maximum(distance[falling], 1), 0, 1)
+    speeds = getattr(frame, 'movement_speeds', None)
+    # Use verified maximum movement, since reaching an item can release Shift.
+    # Unknown speed retains the original 4px/tick baseline, not a made-up readout.
+    fast = float(speeds[0]) if speeds is not None and 0 < speeds[1] <= speeds[0] < 20 else 4.
+    reachable[falling] = np.clip(remaining_ticks[falling] * fast / np.maximum(distance[falling], 1), 0, 1)
     attraction = desire[types] * np.exp(-distance / 96) * reachable
     return float(ITEM_POTENTIAL_LIMIT * math.exp(-raw_credit / RESOURCE_BUDGET)
                  * max(.05, 1 - threat) * attraction.max())
@@ -145,7 +149,8 @@ class RewardStep:
 
 
 class RewardTracker:
-    def __init__(self):
+    def __init__(self, *, feature_cache=None):
+        self.feature_cache = feature_cache
         self.reset()
 
     def reset(self, frame: Frame | None = None):
@@ -194,7 +199,7 @@ class RewardTracker:
         ticks = frame.tick - before.tick
         if ticks < 0 or (ticks == 0 and not died):
             raise RuntimeError("奖励计算需要推进的游戏帧；计时重置时应先对齐观测")
-        risk = collision_risk(frame, before)
+        risk = collision_risk(frame, before, cache=self.feature_cache)
         threat = risk.threat
         graze_gained = 0
         if before.resources is not None and frame.resources is not None:

@@ -32,6 +32,8 @@ def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat
     runner=PolicyRunner(model.policy,config.inference_backend,profile=True)
     runner.warmup(lease=heartbeat.lease)
     reader=GameReader(config.game_path)
+    if getattr(config, 'capture_backend', 'auto') != 'auto':
+        reader.process.configure_reads(config.capture_backend)
     reader.checkpoint=heartbeat.lease
     diagnostics=SessionDiagnostics(run_dir,'train')
     reader.observer=diagnostics.observe

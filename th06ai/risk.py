@@ -22,7 +22,7 @@ class RiskEstimate:
     geometry_coverage: float
 
 
-def collision_risk(frame: Frame, previous: Frame | None = None) -> RiskEstimate:
+def collision_risk(frame: Frame, previous: Frame | None = None, *, cache=None) -> RiskEstimate:
     def contact_risk(clearance):
         # Outside the collision envelope + margin, proximity has no cost.
         # Being inside the much wider graze ring is neither a bonus nor a fault.
@@ -30,7 +30,7 @@ def collision_risk(frame: Frame, previous: Frame | None = None) -> RiskEstimate:
 
     threat,clearance,coverage=0.,None,1.
     if len(frame.bullets):
-        state = visible_bullet_state(frame, previous)
+        state = cache.get(frame, previous) if cache is not None else visible_bullet_state(frame, previous)
         risk = np.maximum(contact_risk(state.current_clearance),
                           contact_risk(state.predicted_clearance) * np.exp(-state.closest_tick / PREDICTION_TICKS))
         clearance = float(state.predicted_clearance.min()) if state.known_geometry.all() and state.known_motion.all() else None

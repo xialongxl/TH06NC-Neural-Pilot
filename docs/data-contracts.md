@@ -8,12 +8,12 @@
 | --- | ---: | --- |
 | 游戏身份 | build 25306795 + 固定 SHA-256 | `native.py:BUILD_ID/SHA256/SIGNATURES` |
 | 观测布局 | 9 | `observations.py:OBSERVATION_VERSION` |
-| 奖励语义 | 8 | `rewards.py:REWARD_VERSION` |
+| 奖励语义 | 9 | `rewards.py:REWARD_VERSION` |
 | 策略／炸弹结构 | 2 | `policy_spec.py:POLICY_VERSION` |
 | 规划语义 | 7 | `planner_spec.py:PLANNER_VERSION` |
 | 动作计时语义 | 3 | `observations.py:ACTION_TIMING_VERSION` |
-| 输入延迟诊断记录 | 2 | `input_timing.py:InputTiming.begin` |
-| 碰撞／按键原生 ABI | 2 | `native/src/lib.rs:API_VERSION` |
+| 输入延迟诊断记录 | 3 | `input_timing.py:InputTiming.begin` |
+| 碰撞／按键／只读采集原生 ABI | 3 | `native/src/lib.rs:API_VERSION` |
 | 独立搜索 ABI | 1 | `native/src/lib.rs:SEARCH_API_VERSION` |
 | UI 增量协议 | 2；保留旧协议 1 | `console_stream.py` / `frontend/src/stream.ts` |
 
@@ -42,6 +42,8 @@
 | 射击诊断 | `player_shots` 可为 None；不能把未知写成 0 弹 |
 
 数组空时保留二维列数，例如 `(0,8)`，不要用任意一维空列表代替。当前字段没有保证跨全部区块严格同帧；跨帧标记保留在 `state_reader` 诊断。
+
+GameReader 返回的数组是独立的只读快照，不得原地修改。`capture_metrics` 记录本次批量采集、解码、相位及可选 Rust 计算/GIL 交接耗时。输入诊断 v3 追加 `read_breakdown` 与绑定同一观测的 `pre_policy_work`，不改变动作计时 v3 的两帧保持语义。
 
 激光 `state=0` 为预告，`1` 为伤害阶段，`2` 为消退。当前解码输出可见预告和伤害阶段，消退排除。预告作为规划障碍，但不能仅凭预告判断已处于当前伤害或提高救命 B 探索。
 
@@ -164,7 +166,7 @@ models/
 | `actions.csv` | 每次已发生动作、阶段、奖励／资源／几何摘要和原始时序 |
 | `episodes.csv` | 生存、死亡、关卡、B 使用等逐局指标 |
 | `sampling_events.jsonl` | 刷新、中断、边界等采样事件 |
-| `observations-*.npz` | 实际 on-policy 输入与 actions/rewards/values/log_probs 等 |
+| `observations-*.npz` | full 保存实际 on-policy 输入；summary 仅 actions/rewards/values/log_probs 等；metadata 明确级别，off 不生成 |
 | `death-*.npz` | 死亡前短时原始快照及控制样本 |
 | `evaluation_progress.json` | 每局落盘的固定权重评估进度，可为未完成 |
 | `evaluation.json` | 完整评估报告；只在请求局数全部完成后生成 |

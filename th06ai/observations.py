@@ -4,7 +4,7 @@ import numpy as np
 from dataclasses import replace
 
 from .native import Frame, CAPACITY
-from .bullet_state import visible_velocities, visible_bullet_state, PREDICTION_TICKS
+from .bullet_state import visible_velocities, visible_bullet_state, PREDICTION_TICKS, BulletStateCache
 from .planner_spec import PLAN_MOVEMENTS, PLAN_FEATURES
 from .input_timing import clock_ns
 from .stage import STAGE_FEATURES, stage_vector, context_changed
@@ -53,13 +53,15 @@ def make_observation_space(version=OBSERVATION_VERSION):
 
 class ObservationBuilder:
     """Geometry/temporal preprocessing only. Never selects or modifies actions."""
-    def __init__(self, planner=None, goal='survival'):
+    def __init__(self, planner=None, goal='survival', *, feature_cache=None):
         self.planner = planner
+        self.feature_cache = feature_cache if feature_cache is not None else BulletStateCache()
         if goal not in ('survival','nmnb'):raise ValueError('未知会话目标')
         self.goal = goal
         self.reset()
 
     def reset(self):
+        self.feature_cache.clear()
         self.previous = None
         self._motion_previous = None
         if self.planner is not None:
@@ -106,7 +108,7 @@ class ObservationBuilder:
             indices = np.argsort(np.sum(relative * relative, axis=1), kind="stable")[:NEAREST]
             n = len(indices)
             bullets[:n, :2] = relative[indices] / (width, height)
-            state = visible_bullet_state(frame, previous)
+            state = self.feature_cache.get(frame, previous)
             bullets[:n, 2:4] = state.velocity[indices] / 16
             bullets[:n, 4] = 1
             # Keep ALL visible rows in the verified pool. The separate near
@@ -197,13 +199,16 @@ class ObservationBuilder:
 DIRECTIONS = ((), ("up",), ("down",), ("left",), ("right",),
               ("up", "left"), ("up", "right"), ("down", "left"), ("down", "right"))
 
+_ACTION_KEYS = tuple(frozenset({'z', *DIRECTIONS[i % 9]} |
+                    ({'shift'} if (i//9)%2 else set()) | ({'x'} if i>=18 else set())) for i in range(ACTION_COUNT))
+_MOVEMENT_ACTIONS = {keys:i for i,keys in enumerate(_ACTION_KEYS[:18])}
+
+
+def movement_action(keys):
+    return _MOVEMENT_ACTIONS.get(frozenset(keys)-{'x'})
+
 
 def action_keys(action: int) -> set[str]:
     if not 0 <= int(action) < ACTION_COUNT:
         raise ValueError("模型动作必须是 0 到 35")
-    keys = {"z", *DIRECTIONS[int(action) % 9]}
-    if (int(action) // 9) % 2:
-        keys.add("shift")
-    if int(action) >= 18:
-        keys.add("x")
-    return keys
+    return set(_ACTION_KEYS[int(action)])

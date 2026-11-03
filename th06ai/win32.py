@@ -105,16 +105,46 @@ class ReadOnlyProcess:
         self.handle = open_process(0x10 | 0x1000, False, pid)
         if not self.handle:
             raise ct.WinError(ct.get_last_error())
+        self.configure_reads('auto')
+
+    def configure_reads(self, backend):
+        if backend not in ('auto', 'python', 'rust'):
+            raise ValueError('capture_backend 必须是 auto、python 或 rust')
+        from .acceleration import extension
+        self._native_reader = None if backend == 'python' else extension()
+        if backend == 'rust' and self._native_reader is None:
+            raise RuntimeError('Rust 只读采集扩展不可用，请构建 ABI v3 或使用 auto/python')
+        # Large owned-result copies regress the warm bulk read benchmark.
+        # Auto keeps read_into buffers and batches only small phase/control reads.
+        self.native_batch = backend == 'rust'
+        self.last_batch_timing = {}
 
     def read(self, rva: int, size: int) -> bytes:
         buf = bytearray(size)
         self.read_into(rva, buf)
         return bytes(buf)
 
+    def read_many(self, requests):
+        requests = tuple(requests)
+        for rva, size in requests:
+            if rva < 0 or size <= 0 or rva+size > self.size:
+                raise ValueError('读取范围不在已验证的游戏主模块内')
+        module = getattr(self, '_native_reader', None)
+        if module is None:
+            return tuple(self.read(rva, size) for rva, size in requests)
+        blocks, compute, handoff = module.read_many(int(self.handle), [(self.base+rva,size) for rva,size in requests])
+        self.last_batch_timing = {'native_compute_ms': compute/1e6, 'native_handoff_ms': handoff/1e6}
+        return blocks
+
     def read_indirect(self, pointer_rva: int, offset: int, size: int) -> bytes | None:
         """Read a pinned game's heap object; never grant write/operation rights."""
         if not 0 <= offset <= 0x20000 or not 0 < size <= 0x20000-offset:
             raise ValueError('间接读取范围异常')
+        if pointer_rva < 0 or pointer_rva+8 > self.size:
+            raise ValueError('读取范围不在已验证的游戏主模块内')
+        module = getattr(self, '_native_reader', None)
+        if module is not None:
+            return module.read_indirect_bytes(int(self.handle), self.base+pointer_rva, offset, size)
         address=int.from_bytes(self.read(pointer_rva,8),'little')
         if not address:
             return None
@@ -272,9 +302,9 @@ class INPUT(ct.Structure):
 send_input = bind(u32, "SendInput", wt.UINT, wt.UINT, ct.POINTER(INPUT), ct.c_int)
 KEYS = {"z": (0x2C, False), "x": (0x2D, False), "shift": (0x2A, False), "up": (0x48, True),
         "down": (0x50, True), "left": (0x4B, True), "right": (0x4D, True),
-        "esc": (0x01, False), "enter": (0x1C, False), "r": (0x13, False)}
+        "esc": (0x01, False), "enter": (0x1C, False), "r": (0x13, False), "q": (0x10, False)}
 VIRTUAL_KEYS = {"z": 0x5A, "x": 0x58, "shift": 0x10, "up": 0x26, "down": 0x28,
-                "left": 0x25, "right": 0x27, "esc": 0x1B, "enter": 0x0D, "r": 0x52}
+                "left": 0x25, "right": 0x27, "esc": 0x1B, "enter": 0x0D, "r": 0x52, "q": 0x51}
 
 
 def _key_input(name: str, down: bool):

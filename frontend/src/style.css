@@ -1901,3 +1901,7 @@ footer>div:first-child {
 .game-setup-fields select { width:100%; min-width:0; padding:11px 12px; border:1px solid var(--line); border-radius:8px; background:var(--inset); color:var(--text); font:inherit; }
 .game-setup p { color:var(--muted); font-size:11px; line-height:1.7; margin:12px 0 0; }
 @media (max-width:480px) { .game-setup-fields { grid-template-columns:1fr; } }
+
+.model-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 16px 0 24px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+.model-pagination > div { display: flex; gap: 8px; }
+.model-pagination .btn { min-height: 36px; padding: 8px 14px; }

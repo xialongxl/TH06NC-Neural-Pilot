@@ -137,11 +137,11 @@ fn profile_sweep_bytes<'py>(py:Python<'py>,data:&[u8],n:usize,m:usize,k:usize,
     Ok((PyBytes::new(py,&bytes),compute_ns,handoff_ns))
 }
 
-const NAMES:usize=9; // up,down,left,right,shift,z,x,esc,r
+const NAMES:usize=10; // up,down,left,right,shift,z,x,esc,r,q; preserve existing bit positions
 fn changes(held:u16,wanted:u16)->Vec<(usize,bool)> {
     let mut out=Vec::new();
     for i in 0..NAMES {if held&(1<<i)!=0 && wanted&(1<<i)==0 {out.push((i,false));}}
-    for i in [4,0,1,2,3,5,6,7,8] {if held&(1<<i)==0 && wanted&(1<<i)!=0 {out.push((i,true));}}
+    for i in [4,0,1,2,3,5,6,7,8,9] {if held&(1<<i)==0 && wanted&(1<<i)!=0 {out.push((i,true));}}
     out
 }
 
@@ -155,8 +155,8 @@ mod os {
     pub fn focused(pid:u32,hwnd:usize)->bool {unsafe {let h=GetForegroundWindow();let mut p=0;GetWindowThreadProcessId(h,&mut p);h as usize==hwnd && p==pid}}
     pub fn send(changes:&[(usize,bool)])->bool {
         let inputs:Vec<Input>=changes.iter().map(|&(i,down)| {
-            let scan=[0x48,0x50,0x4b,0x4d,0,0,0,0,0][i];
-            let vk=[0,0,0,0,0x10,0x5a,0x58,0x1b,0x52][i];
+            let scan=[0x48,0x50,0x4b,0x4d,0,0,0,0,0,0][i];
+            let vk=[0,0,0,0,0x10,0x5a,0x58,0x1b,0x52,0x51][i];
             let mut event=Event{align:[0;4]};
             event.keyboard=Keyboard{vk,scan,flags:(if i<4 {9} else {0})|if down {0} else {2},time:0,extra:0};
             Input{kind:1,event}
@@ -191,12 +191,80 @@ impl NativeInput {
     #[getter] fn held(&self)->PyResult<u16>{self.held.lock().map(|v|*v).map_err(|_|PyRuntimeError::new_err("input lock poisoned"))}
 }
 
+fn checked_ranges(ranges:&[(usize,usize)])->Result<(),String> {
+    if ranges.is_empty() || ranges.len()>64 {return Err("invalid read count".into());}
+    let mut total=0usize;
+    for &(address,size) in ranges {
+        if address<0x10000 || size==0 || address.checked_add(size).is_none_or(|end|end>0x7fffffffffff) {
+            return Err("invalid read range".into());
+        }
+        total=total.checked_add(size).ok_or("read size overflow")?;
+    }
+    if total>16*1024*1024 {return Err("read budget exceeded".into());}
+    Ok(())
+}
+
+#[cfg(windows)]
+fn read_owned(handle:usize,address:usize,size:usize)->Result<Vec<u8>,String> {
+    use std::ffi::c_void;
+    #[link(name="kernel32")] unsafe extern "system" {
+        fn ReadProcessMemory(handle:*mut c_void,address:*const c_void,buffer:*mut c_void,size:usize,read:*mut usize)->i32;
+    }
+    let mut out=vec![0u8;size];let mut count=0usize;
+    if unsafe {ReadProcessMemory(handle as *mut c_void,address as *const c_void,out.as_mut_ptr() as *mut c_void,size,&mut count)}==0 || count!=size {
+        return Err(format!("read-only capture failed: {}",std::io::Error::last_os_error()));
+    }
+    Ok(out)
+}
+#[cfg(not(windows))]
+fn read_owned(_:usize,_:usize,_:usize)->Result<Vec<u8>,String>{Err("Windows required".into())}
+
+#[pyfunction]
+fn read_many<'py>(py:Python<'py>,handle:usize,ranges:Vec<(usize,usize)>)->PyResult<(Vec<Bound<'py,PyBytes>>,u64,u64)> {
+    if handle==0 {return Err(PyValueError::new_err("read handle required"));}
+    checked_ranges(&ranges).map_err(PyValueError::new_err)?;
+    // Requests and all result buffers are owned before detaching. No Python
+    // mutable buffer or NumPy view can cross this boundary.
+    let before=std::time::Instant::now();
+    let (data,compute_ns)=py.detach(move|| {
+        let started=std::time::Instant::now();
+        let result=ranges.iter().map(|&(address,size)|read_owned(handle,address,size)).collect::<Result<Vec<_>,_>>();
+        (result,started.elapsed().as_nanos() as u64)
+    });
+    let handoff_ns=(before.elapsed().as_nanos() as u64).saturating_sub(compute_ns);
+    let data=data.map_err(PyRuntimeError::new_err)?;
+    Ok((data.iter().map(|block|PyBytes::new(py,block)).collect(),compute_ns,handoff_ns))
+}
+
+#[pyfunction]
+fn read_indirect_bytes<'py>(py:Python<'py>,handle:usize,pointer:usize,offset:usize,size:usize)->PyResult<Option<Bound<'py,PyBytes>>> {
+    if handle==0 || offset>0x20000 || size==0 || size>0x20000-offset {return Err(PyValueError::new_err("invalid indirect read"));}
+    checked_ranges(&[(pointer,8)]).map_err(PyValueError::new_err)?;
+    let result=py.detach(move||->Result<Option<Vec<u8>>,String>{
+        let bytes=read_owned(handle,pointer,8)?;
+        let address=u64::from_le_bytes(bytes.try_into().unwrap()) as usize;
+        if address==0 {return Ok(None);}
+        let start=address.checked_add(offset).ok_or("pointer overflow")?;
+        checked_ranges(&[(start,size)])?;
+        Ok(Some(read_owned(handle,start,size)?))
+    }).map_err(PyRuntimeError::new_err)?;
+    Ok(result.as_ref().map(|bytes|PyBytes::new(py,bytes)))
+}
+
 #[pymodule]
-fn _native_backend(m:&Bound<'_,PyModule>)->PyResult<()> {m.add("API_VERSION",2)?;m.add("SEARCH_API_VERSION",1)?;m.add_function(wrap_pyfunction!(plan_bytes,m)?)?;m.add_function(wrap_pyfunction!(sweep_bytes,m)?)?;m.add_function(wrap_pyfunction!(profile_sweep_bytes,m)?)?;m.add_class::<NativeInput>()?;Ok(())}
+fn _native_backend(m:&Bound<'_,PyModule>)->PyResult<()> {
+    m.add("API_VERSION",3)?;m.add("SEARCH_API_VERSION",1)?;
+    m.add_function(wrap_pyfunction!(plan_bytes,m)?)?;m.add_function(wrap_pyfunction!(sweep_bytes,m)?)?;
+    m.add_function(wrap_pyfunction!(profile_sweep_bytes,m)?)?;
+    m.add_function(wrap_pyfunction!(read_many,m)?)?;m.add_function(wrap_pyfunction!(read_indirect_bytes,m)?)?;
+    m.add_class::<NativeInput>()?;Ok(())
+}
 
 #[cfg(test)] mod tests {
     use super::*;
     #[test] fn continuous_rect(){let (d,t)=rectangle([5.,0.],[-2.,0.],[1.,1.],4.);assert_eq!(t,2.);assert!(d<0.);}
     #[test] fn key_order(){assert_eq!(changes(1,48),vec![(0,false),(4,true),(5,true)]);}
+    #[test] fn menu_q_keeps_existing_key_bits(){assert_eq!(changes(1<<8,1<<9),vec![(8,false),(9,true)]);}
+    #[test] fn bounded_read_requests(){assert!(checked_ranges(&[(0x10000,1024)]).is_ok());assert!(checked_ranges(&[(0,1)]).is_err());assert!(checked_ranges(&[(0x10000,17*1024*1024)]).is_err());}
     #[test] fn concurrent_inputs(){let c=std::sync::Arc::new(NativeInput::new(0,0,true).unwrap());let threads:Vec<_>=(0..8).map(|i|{let c=c.clone();std::thread::spawn(move||for j in 0..1000 {c.apply(1<<((i+j)%9)).unwrap();})}).collect();for t in threads{t.join().unwrap();}c.apply(0).unwrap();assert_eq!(*c.held.lock().unwrap(),0);}
 }

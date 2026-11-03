@@ -1,5 +1,6 @@
 """Canonical action/episode records; JSON encoding is deferred to file flush."""
 import json
+import numpy as np
 from .files import _json_default
 from .rewards import DIAGNOSTIC_FIELDS, REWARD_VERSION
 
@@ -36,6 +37,8 @@ def action_row(info, steps):
         'next_lasers': info.get('next_lasers', []),
         'unsampled_combat_seconds': info.get('unsampled_combat_seconds'),
         **{'input_' + key: info.get('input_latency', {}).get(key) for key in ('version', 'observation_started_ns', 'send_started_ns', 'send_completed_ns', 'plan_started_ns', 'plan_completed_ns', 'policy_started_ns', 'policy_completed_ns', 'observation_to_send_ms', 'policy_ms', 'post_plan_to_send_ms', 'send_ms', 'key_switch_ms', 'input_events', 'game_input_state', 'game_input_match_ms', 'first_motion_observed_ms', 'observed_game_input_bits', 'observation_build_ms', 'next_observation_build_ms', 'read_total_ms', 'observation_to_send_p95_ms', 'policy_p95_ms', 'send_p95_ms', 'observation_native_tick', 'game_input_match_tick', 'post_plan_to_input_ms')},
+        'input_pre_policy_work': info.get('input_latency', {}).get('pre_policy_work', {}),
+        'input_read_breakdown': info.get('input_latency', {}).get('read_breakdown', {}),
         'game_settings': info.get('game_settings'),
         'native_tick_before': info.get('native_tick_before'),
         'native_tick_delta': info.get('native_tick_delta'),
@@ -105,7 +108,13 @@ def action_row(info, steps):
 
 
 def serialized_row(row):
-    return {key: json.dumps(value, ensure_ascii=False, default=_json_default) if isinstance(value,(dict,list,tuple)) else value for key,value in row.items()}
+    def encode(key, value):
+        if isinstance(value, np.ndarray):
+            # Unknown body dimensions retain the historical JSON null contract.
+            value = (np.where(np.isfinite(value), value, None).tolist()
+                     if key in ('decision_enemy_bodies', 'next_enemy_bodies') else value.tolist())
+        return json.dumps(value, ensure_ascii=False, default=_json_default) if isinstance(value, (dict,list,tuple)) else value
+    return {key: encode(key, value) for key, value in row.items()}
 
 
 def episode_row(info, steps, elapsed=None):

@@ -22,7 +22,8 @@ def test_collision_sweeps_resolve_the_loaded_extension_once(monkeypatch):
             result=rust_sweep(np.array([[100,100]],np.float32),np.array([[2,0]],np.float32),
                 2,0,np.array([8,16]),np.array([376,432]),np.empty((0,2)),np.empty((0,2)),np.empty(0),np.empty(0))
             np.testing.assert_array_equal(result[0],[[104,100]])
-        assert lookups==['th06ai._native_backend']
+        assert lookups in (['th06ai.native_runtime._native_backend'],
+                           ['th06ai.native_runtime._native_backend','th06ai._native_backend'])
     finally:extension.cache_clear()
 
 @pytest.mark.parametrize('seed',range(12))

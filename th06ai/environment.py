@@ -14,7 +14,7 @@ from .config import Config, ROOT
 from .files import read_json
 from .planning import RollingPlanner
 from .native import Frame, GameReader, INPUT_WORD
-from .observations import ACTION_COUNT, ACTION_TIMING_VERSION, ObservationBuilder, action_keys, make_observation_space
+from .observations import ACTION_COUNT, ACTION_TIMING_VERSION, ObservationBuilder, action_keys, make_observation_space, movement_action
 from .rewards import REWARD_VERSION, RESOURCE_BUDGET, RewardTracker, residence_age
 from .win32 import KeyController, VIRTUAL_KEYS, get_async_key, GameFocusLost, foreground, restore_foreground
 from .control import FinishTraining, SamplingInterrupted
@@ -35,6 +35,8 @@ class TouhouEnv(gym.Env):
     def __init__(self, config: Config, lease: Callable, status: Callable):
         super().__init__()
         self.reader = GameReader(config.game_path)
+        if config.capture_backend != 'auto':
+            self.reader.process.configure_reads(config.capture_backend)
         self.reader.checkpoint = lease
         self.reader.window.checkpoint = lease
         self.episode_seconds = config.episode_seconds
@@ -46,7 +48,7 @@ class TouhouEnv(gym.Env):
         self.builder = ObservationBuilder(planner=RollingPlanner(config.planning,
                 fast_speed=calibration.get("fast_px_per_tick", 4.),
                 slow_speed=calibration.get("slow_px_per_tick", 2.)),goal=config.goal)
-        self.reward_tracker = RewardTracker()
+        self.reward_tracker = RewardTracker(feature_cache=self.builder.feature_cache)
         self.action_space = gym.spaces.Discrete(ACTION_COUNT)
         self.observation_space = make_observation_space()
         self.current: Frame | None = None
@@ -72,6 +74,7 @@ class TouhouEnv(gym.Env):
         self.game_setup = config.game_setup
         self.episode_bombs_used = 0
         self.diagnostics = None
+        self.diagnostics_config = config.diagnostics
 
     def enable_diagnostics(self, run_dir, mode):
         from .diagnostics import SessionDiagnostics
@@ -93,6 +96,9 @@ class TouhouEnv(gym.Env):
 
     def record_policy_timing(self, started_ns, completed_ns):
         self._timing().policy(started_ns, completed_ns)
+
+    def record_pre_policy_work(self, **milliseconds):
+        self._timing().record_work(self.current, **milliseconds)
 
     def record_decision(self, decision, training_step=None):
         self.decision_context = {'training_step':training_step,'bomb_probability':decision.bomb_probability,
@@ -759,10 +765,9 @@ class TouhouEnv(gym.Env):
         if setup is not None and not setup.matches(before):
             self._verify_setup(before)
         previous_action = getattr(self, "last_action", None)
-        previous_keys = set(getattr(self.keys, 'held',
-                            action_keys(previous_action) if previous_action is not None else set()))
-        actual_previous_action = next((i for i in range(18) if 'z' in previous_keys and
-                action_keys(i)-{'z','x'} == previous_keys-{'z','x'}), None)
+        previous_keys = (set(self.keys.held) if hasattr(self.keys, 'held') else
+                         action_keys(previous_action) if previous_action is not None else set())
+        actual_previous_action = movement_action(previous_keys)
         requested_keys = action_keys(int(action))
         if hasattr(self.keys,'reconcile'):
             self.keys.reconcile('z')
@@ -852,6 +857,7 @@ class TouhouEnv(gym.Env):
         build_started = clock_ns()
         observation = self.builder.build(f)
         latency['next_observation_build_ms'] = (clock_ns()-build_started)/1e6
+        info_started = clock_ns()
         decision_planning = dict(decision_plan.diagnostics) if decision_plan is not None else {"enabled": False}
         if decision_plan is not None and decision_plan.diagnostics.get("enabled"):
             movement = int(action) % 18
@@ -880,7 +886,7 @@ class TouhouEnv(gym.Env):
                 'game_phase':phase_of(f),'game_phase_evidence':f.phase_evidence,
                 'player_shots':f.player_shots,'visible_lasers':len(f.lasers),
                 'unsampled_combat_seconds':getattr(self,'unsampled_ticks',0)/60,
-                'decision_lasers':before.lasers.tolist(),'next_lasers':f.lasers.tolist(),
+                'decision_lasers':before.lasers,'next_lasers':f.lasers,
                 'episode_end_reason':'death' if died else 'time_limit' if truncated else None,
                 "native_tick_before": before.tick, "native_tick_delta": delta,
                 "native_tick_dispatch": dispatched.tick,
@@ -903,10 +909,8 @@ class TouhouEnv(gym.Env):
                 "graze_gained": feedback.graze_gained,
                 "bullet_observation": coverage,
                 "planning": decision_planning, "planning_next": planning,
-                "decision_enemy_bodies": [[float(value) if np.isfinite(value) else None for value in row]
-                                          for row in before.enemy_bodies],
-                "next_enemy_bodies": [[float(value) if np.isfinite(value) else None for value in row]
-                                      for row in f.enemy_bodies],
+                "decision_enemy_bodies": before.enemy_bodies,
+                "next_enemy_bodies": f.enemy_bodies,
                 "state_reader": dict(getattr(self.reader, "snapshot_diagnostics", {})),
                 "input_latency": latency,
                 "risk_estimate": {"min_clearance": feedback.min_clearance,
@@ -970,6 +974,7 @@ class TouhouEnv(gym.Env):
                                if f.resources is not None else None),
                     wall_push_seconds=round(self.reward_tracker.wall_push_ticks / 60, 3))
         self.freshness_warning = None
+        self.record_pre_policy_work(env_diagnostics_ms=(clock_ns()-info_started)/1e6)
         return observation, reward, died, truncated, info
 
     def close(self):

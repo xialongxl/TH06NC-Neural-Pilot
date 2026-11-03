@@ -51,6 +51,37 @@ class BulletState:
     predicted_clearance: np.ndarray
 
 
+class BulletStateCache:
+    """Two immutable snapshot pairs, not a tick-based cache across refreshes."""
+    def __init__(self):
+        self.entries = []
+
+    @staticmethod
+    def _key(frame):
+        if frame is None:
+            return None
+        def array_key(value):
+            if value is None:return None
+            # Native captures are read-only; writable external snapshots also
+            # need exact contents, including same-tick in-place edits.
+            return id(value), value.tobytes() if value.flags.writeable else None
+        return (frame.tick, frame.x, frame.y, frame.player_radius,
+                array_key(frame.bullets), array_key(frame.bullet_sizes))
+
+    def get(self, frame, previous=None):
+        key = (self._key(frame), self._key(previous))
+        for cached_key, _, state in self.entries:
+            if cached_key == key:
+                return state
+        state = visible_bullet_state(frame, previous)
+        # Keep references alive so CPython cannot recycle an array id in a key.
+        self.entries = [(key, (frame, previous), state), *self.entries[:1]]
+        return state
+
+    def clear(self):
+        self.entries.clear()
+
+
 def visible_bullet_state(frame: Frame, previous: Frame | None = None) -> BulletState:
     relative = frame.bullets[:, 1:3].astype(np.float64) - [frame.x, frame.y]
     velocity, known_motion = visible_velocities(frame, previous)

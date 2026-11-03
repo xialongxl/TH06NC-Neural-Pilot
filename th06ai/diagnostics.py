@@ -4,12 +4,12 @@ from collections import deque
 import csv
 import json
 from pathlib import Path
-import queue
 import threading
 import time
 import numpy as np
 from .files import _json_default, atomic_json
 from .log_rows import action_row, episode_row, serialized_row
+from .diagnostic_writer import DiagnosticWriter, write_npz
 
 
 class SessionDiagnostics:
@@ -20,14 +20,9 @@ class SessionDiagnostics:
         self.frames=deque(maxlen=max_frames)
         self.controls=deque(maxlen=512)
         self.lock=threading.Lock()
-        self.jobs=queue.Queue(maxsize=queue_size)
-        self.done=threading.Event()
-        self.errors=[]
-        self.dropped=0
         self.deaths=0
         self.written_deaths=0
-        self.thread=threading.Thread(target=self._run,name='session-diagnostics',daemon=True)
-        self.thread.start()
+        self.writer=DiagnosticWriter(self.root, capacity=queue_size)
 
     def observe(self, frame):
         with self.lock:
@@ -52,17 +47,18 @@ class SessionDiagnostics:
             with self.lock:frames,controls=list(self.frames),list(self.controls)
             self._put(('death',death_id,frames,controls,dict(info)),critical=True)
         if self.mode!='train':
-            self._put(('action',action_row(info,steps)))
+            self.record_action(info, steps)
             if info.get('died') or info.get('episode_end_reason'):
                 self._put(('episode',episode_row(info,steps)),critical=True)
 
     def _put(self, job, critical=False):
-        try:self.jobs.put_nowait(job)
-        except queue.Full:
-            # Diagnostic failures never block the key/guard path. Make lost
-            # records explicit rather than pretending the run is complete.
-            self.dropped+=1
-            if critical:self.errors.append('critical diagnostic backlog: '+str(job[:2]))
+        return self.writer.submit(job, critical=critical)
+
+    def record_action(self, info, steps):
+        return self._put(('action_info', dict(info), int(steps)))
+
+    def record_trace(self, filename, payload, compression_level=1):
+        return self._put(('trace', filename, payload, compression_level))
 
     def _csv(self,name,row):
         path=self.root/name
@@ -79,6 +75,10 @@ class SessionDiagnostics:
         return np.concatenate(arrays) if arrays else np.empty((0,width),np.float32),offsets
 
     def _death(self,death_id,frames,controls,info):
+        info = dict(info)
+        for key in ('decision_enemy_bodies', 'next_enemy_bodies'):
+            value = info.get(key)
+            if isinstance(value, np.ndarray):info[key] = np.where(np.isfinite(value), value, None).tolist()
         bullets=[]
         for f in frames:
             sizes=f.bullet_sizes if f.bullet_sizes is not None else np.full((len(f.bullets),2),np.nan)
@@ -108,33 +108,12 @@ class SessionDiagnostics:
              'control_fields':['tick','stage_id','x','y','player_state','paused','input_bits'],
              'bounds':[list(f.bounds) for f in frames],'phase_evidence':[f.phase_evidence for f in frames],
              'decision':info},ensure_ascii=False,default=_json_default))
-        target=self.root/(death_id+'.npz')
-        pending=target.with_suffix('.pending.npz')
-        np.savez_compressed(pending,**payload)
-        pending.replace(target)
+        write_npz(self.root/(death_id+'.npz'), payload)
         self.written_deaths+=1
 
-    def _run(self):
-        while not self.done.is_set() or not self.jobs.empty():
-            try:job=self.jobs.get(timeout=.05)
-            except queue.Empty:continue
-            try:
-                if job[0]=='death':self._death(*job[1:])
-                elif job[0]=='action':self._csv('actions.csv',job[1])
-                elif job[0]=='episode':self._csv('episodes.csv',job[1])
-                elif job[0]=='event':
-                    with (self.root/'sampling_events.jsonl').open('a',encoding='utf-8') as stream:
-                        stream.write(json.dumps(job[1],ensure_ascii=False,default=_json_default)+'\n')
-            except Exception as error:
-                self.errors.append(str(error))
-                self.errors=self.errors[-8:]
-            finally:self.jobs.task_done()
-
     def status(self):
-        return {'deaths':self.deaths,'written_deaths':self.written_deaths,'queued':self.jobs.qsize(),
-                'dropped_records':self.dropped,'errors':list(self.errors)}
+        return {'deaths':self.deaths, **self.writer.status()}
 
     def close(self,timeout=3.):
-        self.done.set()
-        self.thread.join(timeout)
-        atomic_json(self.root/'diagnostics_summary.json',{**self.status(),'complete':not self.thread.is_alive()})
+        complete=self.writer.close(timeout)
+        atomic_json(self.root/'diagnostics_summary.json',{**self.status(),'complete':complete})

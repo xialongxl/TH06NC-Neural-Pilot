@@ -192,6 +192,7 @@ class Frame:
     character: str | None = None
     game_mode: str | None = None
     movement_speeds: tuple[float, float] | None = None
+    capture_metrics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -262,12 +263,12 @@ class GameReader:
         from .game_phase import classify
         started = clock_ns()
         p = self.process
-        tick = struct.unpack('<ii', p.read(BULLET_MANAGER, 8))[1]
-        player = p.read(PLAYER+0x7710, 0x1A0)
+        header, player, flags, engine_raw = self._read_blocks(((BULLET_MANAGER,8),
+            (PLAYER+0x7710,0x1A0),(NC_PAUSE,21),(ENGINE_STATE,4)))
+        tick = struct.unpack('<ii', header)[1]
         x,y = struct.unpack_from('<ff',player,0x20)
         state = player[0x188]
-        flags = p.read(NC_PAUSE,21)
-        engine = struct.unpack('<i',p.read(ENGINE_STATE,4))[0]
+        engine = struct.unpack('<i',engine_raw)[0]
         context = p.read(CHARACTER_RVA,8) if engine==2 else None
         stage = decode_stage(struct.unpack_from('<i',context,4)[0]) if context is not None else None
         hud = p.read_indirect(HUD_POINTER,0x3668,0x4C) if engine==2 and hasattr(p,'read_indirect') else None
@@ -295,6 +296,10 @@ class GameReader:
             except Exception as error:self.snapshot_diagnostics['recording_error'] = str(error)
         return sample
 
+    def _read_blocks(self, requests):
+        batch = getattr(self.process, 'read_many', None)
+        return batch(requests) if batch is not None else tuple(self.process.read(*request) for request in requests)
+
     def _capture(self):
         """Read current state once; a concurrent game tick is diagnostic only.
 
@@ -311,15 +316,21 @@ class GameReader:
         checkpoint = getattr(self, "checkpoint", None)
         if checkpoint is not None:
             checkpoint()
-        before = p.read(BULLET_MANAGER, 8)
-        for address, buffer in ((WORLD_START, self._world), (ACTORS_START, self._actors)):
-            if address == ACTORS_START and not snapshot.active(p.base):
-                break
-            if hasattr(p, "read_into"):
-                p.read_into(address, buffer)
-            else:
-                buffer[:] = p.read(address, len(buffer))
-        after = p.read(BULLET_MANAGER, 8)
+        native_batch = bool(getattr(p, 'native_batch', False))
+        if native_batch:
+            before, world, actors, after = p.read_many(((BULLET_MANAGER,8), (WORLD_START,WORLD_SIZE),
+                                                       (ACTORS_START,ACTORS_SIZE), (BULLET_MANAGER,8)))
+            self._world[:], self._actors[:] = world, actors
+        else:
+            before = p.read(BULLET_MANAGER, 8)
+            for address, buffer in ((WORLD_START, self._world), (ACTORS_START, self._actors)):
+                if address == ACTORS_START and not snapshot.active(p.base):
+                    break
+                if hasattr(p, "read_into"):
+                    p.read_into(address, buffer)
+                else:
+                    buffer[:] = p.read(address, len(buffer))
+            after = p.read(BULLET_MANAGER, 8)
         embedded = snapshot.read(BULLET_MANAGER, 8)
         self.snapshot_diagnostics = {"attempts": 1,
                                      "elapsed_ms": round((time.perf_counter()-started)*1000, 3),
@@ -327,6 +338,8 @@ class GameReader:
                                      "sample_tick": struct.unpack("<ii", embedded)[1],
                                      "after_tick": struct.unpack("<ii", after)[1],
                                      "crossed_tick": not (before == after and before == embedded)}
+        self.snapshot_diagnostics.update(capture_backend='rust' if native_batch else 'python',
+            **(getattr(p, 'last_batch_timing', {}) if native_batch else {}))
         return snapshot
 
     def read(self) -> Frame:
@@ -335,11 +348,13 @@ class GameReader:
         # Optional diagnostic read. Failure here must not create a new STOP
         # condition or invalidate an otherwise valid gameplay snapshot.
         input_bits, input_observed_ns = None, 0
+        input_started = clock_ns()
         try:
             input_bits = int.from_bytes(self.process.read(INPUT_WORD, 4), 'little')
             input_observed_ns = clock_ns()
         except (OSError, RuntimeError, ValueError):
             pass
+        self.snapshot_diagnostics['input_read_ms'] = (clock_ns()-input_started)/1e6
         player = p.read(PLAYER + 0x7710, 0x1A0)
         x, y = struct.unpack_from("<ff", player, 0x20)
         player_radius = struct.unpack_from("<f", player, 0x3C)[0]
@@ -416,15 +431,18 @@ class GameReader:
 
     def _complete_frame(self, frame, started_ns, input_bits, input_observed_ns):
         from .game_phase import classify
+        phase_started = clock_ns()
+        self.snapshot_diagnostics['decode_ms'] = max(0., (phase_started-started_ns)/1e6-
+            self.snapshot_diagnostics.get('elapsed_ms',0)-self.snapshot_diagnostics.get('input_read_ms',0))
         # Menu/dialogue state is read independently of movement and bullet
         # density. Optional diagnostic failure never fabricates a pause.
         evidence={}
         try:
             p=self.process
             if hasattr(p,'read_indirect'):
-                flags=p.read(NC_PAUSE,10)
-                engine=struct.unpack('<i',p.read(ENGINE_STATE,4))[0]
-                pause_ui=p.read(NC_PAUSE_UI+0xB44,0x254)
+                flags, engine_raw, pause_ui=self._read_blocks(((NC_PAUSE,10), (ENGINE_STATE,4),
+                                                              (NC_PAUSE_UI+0xB44,0x254)))
+                engine=struct.unpack('<i',engine_raw)[0]
                 hud=p.read_indirect(HUD_POINTER,0x3668,0x2A4) if engine==2 else None
                 dialogue_index=struct.unpack_from('<i',hud,0x48)[0] if hud is not None else -1
                 evidence={'engine_state':engine,'nc_pause':flags[0],'nc_continue':flags[1],
@@ -475,6 +493,11 @@ class GameReader:
         frame.input_bits, frame.input_observed_ns = input_bits, input_observed_ns
         self.snapshot_diagnostics['total_elapsed_ms'] = round((frame.capture_finished_ns-started_ns)/1e6, 3)
         self.snapshot_diagnostics['input_observed'] = input_bits is not None
+        self.snapshot_diagnostics['phase_ms'] = (clock_ns()-phase_started)/1e6
+        frame.capture_metrics = dict(self.snapshot_diagnostics)
+        for name in ('bullets','bullet_sizes','bullet_states','items','enemies','enemy_bodies','lasers'):
+            value = getattr(frame, name, None)
+            if value is not None:value.setflags(write=False)
         observer = getattr(self, 'observer', None)
         if observer is not None:
             try:observer(frame)

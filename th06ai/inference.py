@@ -28,10 +28,20 @@ class PolicyRunner:
             raise ValueError('CUDA Graph 需要 CUDA 模型')
         self.lock = threading.RLock()
         cuda = self.device.type == 'cuda'
-        self.host = {k: torch.empty((1, *space.shape), dtype=torch.float32, pin_memory=cuda)
-                     for k,space in policy.observation_space.spaces.items()}
+        shapes = {k:(1,*space.shape) for k,space in policy.observation_space.spaces.items()}
+        count = sum(int(np.prod(shape)) for shape in shapes.values())
+        self.host_flat = torch.empty(count, dtype=torch.float32, pin_memory=cuda)
+        self.input_flat = torch.empty_like(self.host_flat, device=self.device) if cuda else self.host_flat
+        self.host, self.inputs = {}, {}
+        offset = 0
+        for key, shape in shapes.items():
+            size = int(np.prod(shape))
+            self.host[key] = self.host_flat[offset:offset+size].view(shape)
+            self.inputs[key] = self.input_flat[offset:offset+size].view(shape)
+            offset += size
         self.views = {k:v.numpy() for k,v in self.host.items()}
-        self.inputs = {k:torch.empty_like(v, device=self.device) if cuda else v for k,v in self.host.items()}
+        self.result_host = torch.empty((1,4), dtype=torch.float32, pin_memory=cuda)
+        self.result_view = self.result_host.numpy()
         self.graphs, self.outputs = {}, {}
         self.ready = False
         self.engine = 'cuda_eager' if cuda else 'cpu_eager'
@@ -57,7 +67,7 @@ class PolicyRunner:
 
     def _transfer(self):
         if self.device.type == 'cuda':
-            for key,value in self.inputs.items():value.copy_(self.host[key], non_blocking=True)
+            self.input_flat.copy_(self.host_flat, non_blocking=True)
 
     def _submit(self, deterministic):
         events = self.events.get(bool(deterministic))
@@ -127,7 +137,8 @@ class PolicyRunner:
                     output = self._submit(deterministic)
                 submitted = time.perf_counter_ns()
                 # One small D2H transfer for action/value/log-prob/B probability.
-                packed = output.detach().cpu().numpy().copy()
+                self.result_host.copy_(output.detach(), non_blocking=False)
+                packed = self.result_view
             finally:self.policy._fast_inference = previous
             if not np.isfinite(packed).all():raise RuntimeError('神经网络推理结果包含无效数值')
             finished = time.perf_counter_ns()

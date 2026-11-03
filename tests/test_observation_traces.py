@@ -58,6 +58,45 @@ def test_optional_trace_io_failure_reports_without_stopping_training(tmp_path, m
     assert messages == [{"trajectory_error": "diagnostic destination unavailable"}]
 
 
+def test_async_trace_owns_data_before_rollout_buffer_is_reused(tmp_path):
+    from th06ai.diagnostics import SessionDiagnostics
+    callback, observations=partial_callback(tmp_path)
+    callback.game.diagnostics=SessionDiagnostics(tmp_path,'train')
+    try:
+        callback.flush_observations()
+        for values in callback.model.rollout_buffer.observations.values():values.fill(-.123)
+    finally:callback.game.diagnostics.close(timeout=5)
+    with np.load(tmp_path/'observations-000000001-000000002.npz',allow_pickle=False) as trace:
+        for name in observations[0]:
+            np.testing.assert_array_equal(trace['obs_'+name],np.stack([obs[name] for obs in observations]))
+
+
+@pytest.mark.parametrize('level',['summary','off'])
+def test_reduced_trace_levels_preserve_explicit_semantics(tmp_path,level):
+    from th06ai.config import DiagnosticsConfig
+    callback,_=partial_callback(tmp_path)
+    callback.diagnostics_config=DiagnosticsConfig(trajectory=level)
+    callback.flush_observations()
+    path=tmp_path/'observations-000000001-000000002.npz'
+    if level=='off':
+        assert not path.exists()
+    else:
+        with np.load(path,allow_pickle=False) as trace:
+            assert not any(name.startswith('obs_') for name in trace.files)
+            assert 'actions' in trace.files and json.loads(str(trace['metadata']))['trajectory_level']=='summary'
+
+
+def test_unsaved_updates_do_not_mislabel_previous_checkpoint_as_exact_sampling_policy(tmp_path):
+    callback,_=partial_callback(tmp_path)
+    callback.rollout_checkpoint='older-saved-checkpoint.zip'
+    callback.model._n_updates=4
+    callback.flush_observations()
+    with np.load(tmp_path/'observations-000000001-000000002.npz',allow_pickle=False) as trace:
+        meta=json.loads(str(trace['metadata']))
+        assert meta['policy_checkpoint'] is None
+        assert meta['last_saved_checkpoint']=='older-saved-checkpoint.zip'
+
+
 @pytest.mark.parametrize('stop,buffer_size',[(5,512),(4,4)])
 def test_budget_finish_preserves_the_last_completed_environment_transition(tmp_path,stop,buffer_size):
     from th06ai.control import TrainingControl

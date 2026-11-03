@@ -33,14 +33,17 @@ def main():
     subprocess.run([cargo,'test' if args.test else 'build','--release','--manifest-path',str(ROOT/'native/Cargo.toml')],env=env,check=True)
     if not args.test:
         src=Path(env['CARGO_TARGET_DIR'])/'release/_native_backend.dll'
-        planner_dir=ROOT/'th06ai/native_planner'
-        planner_dir.mkdir(exist_ok=True)
-        planner_dest=planner_dir/('_native_backend'+sysconfig.get_config_var('EXT_SUFFIX'))
-        shutil.copy2(src,planner_dest)
         if args.planner_only:
+            planner_dir=ROOT/'th06ai/native_planner'
+            planner_dir.mkdir(exist_ok=True)
+            planner_dest=planner_dir/('_native_backend'+sysconfig.get_config_var('EXT_SUFFIX'))
+            shutil.copy2(src,planner_dest)
             print(json.dumps({'planner_extension':str(planner_dest),'python':sys.executable}))
             return
-        dest=ROOT/'th06ai'/('_native_backend'+sysconfig.get_config_var('EXT_SUFFIX'))
+        # Distinct ABI location leaves the DLL mapped by old workers intact.
+        runtime_dir=ROOT/'th06ai/native_runtime'
+        runtime_dir.mkdir(exist_ok=True)
+        dest=runtime_dir/('_native_backend'+sysconfig.get_config_var('EXT_SUFFIX'))
         shutil.copy2(src,dest)
         print(json.dumps({'extension':str(dest),'python':sys.executable}))
 

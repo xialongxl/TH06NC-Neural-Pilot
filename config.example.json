@@ -6,6 +6,7 @@
   "device": "cuda",
   "input_backend": "auto",
   "inference_backend": "auto",
+  "capture_backend": "auto",
   "goal": "survival",
   "game_setup": {
     "mode": "story",
@@ -27,5 +28,11 @@
     "enabled": true,
     "beam_width": 2,
     "collision_backend": "auto"
+  },
+  "diagnostics": {
+    "trajectory": "full",
+    "trajectory_every_rollouts": 1,
+    "compression_level": 1,
+    "checkpoint_every_rollouts": 1
   }
 }

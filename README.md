@@ -189,6 +189,7 @@ flowchart LR
 | 修改观测、动作、模型或日志格式 | [数据契约](docs/data-contracts.md) |
 | 排查边界问题或准备重构 | [易错点与边界条件](docs/gotchas.md) |
 | 验证行为与性能 | [测试与性能](docs/testing-and-performance.md) |
+| 配置轨迹、保存与控制链诊断 | [性能与诊断配置](docs/performance-tuning.md) |
 | 交给另一个 AI 接手 | [AI 交接信](docs/ai-handoff.md)、[结构化上下文](docs/ai-context.json)、[AGENTS.md](AGENTS.md) |
 | 了解 Git 过滤和发布流程 | [开源准备](docs/open-source-readiness.md) |
 

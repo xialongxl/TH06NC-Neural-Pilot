@@ -40,6 +40,24 @@ class SafetyConfig:
 
 
 @dataclass(frozen=True)
+class DiagnosticsConfig:
+    trajectory: str = 'full'
+    trajectory_every_rollouts: int = 1
+    compression_level: int = 1
+    checkpoint_every_rollouts: int = 1
+
+    def __post_init__(self):
+        if self.trajectory not in ('full', 'summary', 'off'):
+            raise ValueError('trajectory 必须是 full、summary 或 off')
+        for name in ('trajectory_every_rollouts', 'checkpoint_every_rollouts'):
+            value = getattr(self, name)
+            if type(value) is not int or not 1 <= value <= 100:
+                raise ValueError(f'{name} 必须为 1 到 100 的整数')
+        if type(self.compression_level) is not int or not 0 <= self.compression_level <= 9:
+            raise ValueError('compression_level 必须为 0 到 9 的整数')
+
+
+@dataclass(frozen=True)
 class Config:
     game_exe: str
     gpu_index: int = 0
@@ -52,6 +70,8 @@ class Config:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     planning: PlanningConfig = field(default_factory=PlanningConfig)
     game_setup: GameSetup | None = None
+    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
+    capture_backend: str = 'auto'
 
     @property
     def game_path(self) -> Path:
@@ -63,6 +83,7 @@ def load_config(path: Path | str | None = None) -> Config:
     data["safety"] = SafetyConfig(**data.get("safety", {}))
     data["planning"] = PlanningConfig(**data.get("planning", {}))
     data['game_setup'] = parse_setup(data.get('game_setup'))
+    data['diagnostics'] = DiagnosticsConfig(**data.get('diagnostics', {}))
     result = Config(**data)
     if result.device not in ("cpu", "cuda"):
         raise ValueError("device 必须是 cpu 或 cuda")
@@ -70,6 +91,8 @@ def load_config(path: Path | str | None = None) -> Config:
         raise ValueError('input_backend 必须是 python、rust 或 auto')
     if result.inference_backend not in ('auto','eager','cuda_graph'):
         raise ValueError('inference_backend 必须是 auto、eager 或 cuda_graph')
+    if result.capture_backend not in ('auto','python','rust'):
+        raise ValueError('capture_backend 必须是 auto、python 或 rust')
     if result.goal not in ('survival','nmnb'):
         raise ValueError('goal 必须是 survival 或 nmnb')
     if not 0 < result.minutes <= 60:

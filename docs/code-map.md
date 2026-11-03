@@ -29,7 +29,8 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 ├── .github/                   Issue 与 PR 模板
 ├── docs/                      说明书、交接与生成的符号索引
 ├── th06ai/                    运行时 Python 包
-│   └── native_planner/        独立搜索模块安装位置
+│   ├── native_runtime/        ABI v3 输入、只读采集与几何／搜索扩展
+│   └── native_planner/        旧独立搜索模块兼容位置
 ├── frontend/
 │   ├── src/                   React、状态流、显示派生逻辑和测试
 │   ├── public/                自有前端静态资源
@@ -98,12 +99,13 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [observations.py](../th06ai/observations.py) | 观测空间、历史控制、编码及 action_keys | 观测 v9／36 动作 |
 | [game_settings.py](../th06ai/game_settings.py) | 请求设置、实际难度／自机／模式、菜单选择与 19 维身份编码 | GameSetup 与 Frame 读数分离 |
 | [objectives.py](../th06ai/objectives.py) | 库存相关资源权重、选取、Power 势函数 | 不越过碰撞约束 |
-| [rewards.py](../th06ai/rewards.py) | RewardTracker、资源预算、驻留／顶墙、奖励分项 | 奖励 v8、gamma |
+| [rewards.py](../th06ai/rewards.py) | RewardTracker、资源预算、驻留／顶墙、奖励分项 | 奖励 v9、gamma |
 | [planner_spec.py](../th06ai/planner_spec.py) | 轻量规划常量及 PlanningConfig | 保护进程可安全导入 |
 | [navigation.py](../th06ai/navigation.py) | 导航／决策列及出口、条件 B 先验常量 | navigation/decision |
 | [planning.py](../th06ai/planning.py) | 连续几何、beam 搜索、时序探测、回退、原生选择 | PlanResult／规划 v7 |
 | [acceleration.py](../th06ai/acceleration.py) | 可选扩展发现、拥有型序列化、RustKeyController | API v2／搜索 v1 |
 | [native_planner/__init__.py](../th06ai/native_planner/__init__.py) | 独立搜索扩展包入口 | 无二进制时仍可导入包 |
+| [native_runtime/__init__.py](../th06ai/native_runtime/__init__.py) | ABI v3 扩展包入口 | 只读批量采集、输入和几何；无二进制时回退参考路径 |
 | [policy_spec.py](../th06ai/policy_spec.py) | 轻量策略版本及 BOMB_PRIOR | 策略 v2 |
 | [policy.py](../th06ai/policy.py) | BulletEncoder、ResourcePolicy、条件探索 | 同一联合概率分布 |
 | [inference.py](../th06ai/inference.py) | 推理缓冲、CUDA Graph、一次小回传、可选事件计时 | Decision，不拥有游戏句柄 |
@@ -119,6 +121,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [ppo_update.py](../th06ai/ppo_update.py) | 资源策略 PPO 更新与探索损失 | 与 ResourcePolicy 保持一致 |
 | [learning.py](../th06ai/learning.py) | 模型创建／加载／迁移／保存，回调与独立评估 | 不删除原模型，安全边界更新 |
 | [model_store.py](../th06ai/model_store.py) | 检查点兼容检查、目录索引、内容寻址保留 | ZIP + 同名 JSON |
+| [diagnostic_writer.py](../th06ai/diagnostic_writer.py) | CPU 诊断进程、有界队列、轨迹压缩与关闭收尾 | 私有管道，不打开游戏或 GPU |
 | [diagnostics.py](../th06ai/diagnostics.py) | 原始快照／轻量样本环、死亡归档、有界异步写盘 | 非关键诊断失败标记缺失 |
 | [log_rows.py](../th06ai/log_rows.py) | action/episode 字段映射、落盘时序列化 | 统一 CSV 解释 |
 | [files.py](../th06ai/files.py) | 原子 JSON、Windows 共享删除读、时间戳和运行目录 | 不把读者锁竞争变成授权故障 |

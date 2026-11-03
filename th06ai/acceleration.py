@@ -5,17 +5,18 @@ from functools import lru_cache
 import threading
 import time
 
-KEY_ORDER = ('up', 'down', 'left', 'right', 'shift', 'z', 'x', 'esc', 'r')
+KEY_ORDER = ('up', 'down', 'left', 'right', 'shift', 'z', 'x', 'esc', 'r', 'q')
 
 @lru_cache(maxsize=1)
 def extension():
     # The loaded PyO3 binary belongs to this process; replacing it already
     # requires a restart. Resolve it once, not at every geometry sweep.
     try:
-        module=importlib.import_module('th06ai._native_backend')
+        module=importlib.import_module('th06ai.native_runtime._native_backend')
     except (ImportError, OSError):
-        return None
-    return module if getattr(module,'API_VERSION',None)==2 else None
+        try:module=importlib.import_module('th06ai._native_backend')
+        except (ImportError, OSError):return None
+    return module if getattr(module,'API_VERSION',None)==3 else None
 
 def backend_status():
     mod=extension()
@@ -24,6 +25,9 @@ def backend_status():
 
 @lru_cache(maxsize=1)
 def search_extension():
+    current=extension()
+    if current is not None and getattr(current, 'SEARCH_API_VERSION', None)==1:
+        return current
     try:
         mod=importlib.import_module('th06ai.native_planner._native_backend')
     except (ImportError,OSError):

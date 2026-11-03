@@ -14,10 +14,12 @@ INPUT_BITS = {"up": 0x10, "down": 0x20, "left": 0x40, "right": 0x80, "shift": 4}
 class TimingWindow:
     def __init__(self, size=64):
         self.values = deque(maxlen=size)
+        self._ordered = None
 
     def add(self, milliseconds):
         if milliseconds is not None and math.isfinite(milliseconds) and milliseconds >= 0:
             self.values.append(float(milliseconds))
+            self._ordered = None
 
     def upper(self, default):
         return self.quantile(.95, default)
@@ -25,11 +27,13 @@ class TimingWindow:
     def quantile(self, fraction, default):
         if not self.values:
             return default
-        ordered = sorted(self.values)
+        if self._ordered is None:self._ordered = sorted(self.values)
+        ordered = self._ordered
         return ordered[max(0, min(len(ordered)-1, math.ceil(fraction*len(ordered))-1))]
 
     def clear(self):
         self.values.clear()
+        self._ordered = None
 
 
 class InputTiming:
@@ -40,6 +44,13 @@ class InputTiming:
         self.policy_times = TimingWindow()
         self.send_times = TimingWindow()
         self.policy_bounds = (None, None)
+        self._work_frame = None
+        self._work = {}
+
+    def record_work(self, frame, **milliseconds):
+        if frame is not self._work_frame:
+            self._work_frame, self._work = frame, {}
+        self._work.update(milliseconds)
 
     def policy(self, started_ns, completed_ns):
         self.policy_ms = (completed_ns-started_ns)/1e6
@@ -55,7 +66,9 @@ class InputTiming:
         self.samples = 0
         captured = getattr(frame, 'capture_started_ns', 0)
         planned = getattr(plan, 'completed_ns', 0)
-        self.latest = {'version': 2, 'policy_ms': self.policy_ms,
+        self.latest = {'version': 3, 'policy_ms': self.policy_ms,
+                'pre_policy_work': dict(self._work) if frame is self._work_frame else {},
+                'read_breakdown': dict(getattr(frame, 'capture_metrics', {})),
                 'policy_started_ns': self.policy_bounds[0], 'policy_completed_ns': self.policy_bounds[1],
                 'plan_started_ns': getattr(plan, 'started_ns', 0) or None,
                 'plan_completed_ns': planned or None,
@@ -77,6 +90,7 @@ class InputTiming:
         # An old policy measurement cannot silently leak across pause/reset.
         self.policy_ms = None
         self.policy_bounds = (None, None)
+        self._work_frame, self._work = None, {}
 
     def observe(self, frame):
         self.samples += 1

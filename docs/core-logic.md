@@ -74,11 +74,11 @@ reader.close()
 
 ### Python 与 Rust 的关系
 
-Python 保留参考算法。`acceleration.rust_sweep()` 可只加速碰撞；另一个可选模块 `native_planner._native_backend` 将外层搜索合并为一次 `plan_bytes()` 调用。
+Python 保留参考算法。`acceleration.rust_sweep()` 可只加速碰撞；ABI v3 的 `native_runtime._native_backend` 同时提供整段 `plan_bytes()` 搜索；保留旧独立搜索包作为兼容路径。
 
 新搜索入口接收拥有型序列化快照，Rust 在释放 GIL 后执行候选展开、评分排序、时序探测、回退和出口检查。每次调用独立，不跨线程共享 NumPy 可变缓冲。`collision_backend` 与 `search_backend` 分开记录：看到碰撞为 Rust 不代表整段搜索已经原生化。
 
-若选择 Python 或没有可选搜索扩展，使用参考路径。按键扩展与新搜索扩展独立安装，避免为更新规划而覆盖仍被进程加载的输入 `.pyd`。
+若选择 Python 或没有可选搜索扩展，使用参考路径。默认 ABI v3 统一安装到 native_runtime；仍可用 planner-only 更新旧独立搜索位置，避免覆盖对应会话已映射的 DLL。正在运行的会话在正常结束后才加载新代码。
 
 ### `ResourcePolicy` 与 `PolicyRunner`
 
@@ -95,7 +95,7 @@ decision = runner.predict(observation, deterministic=False, lease=...)
 # Decision: actions, values, log_probs, bomb_probability, timing
 ```
 
-`PolicyRunner` 复用 CPU 页锁定缓冲及设备输入，CUDA 时可捕获固定形状图；只做一次小结果回传。图捕获限制可回退 CUDA eager，设备丢失、非法访问、OOM 不会伪装成正常 CPU 回退。模型更新与图重放使用同一参数存储，避免图继续读旧权重。
+`PolicyRunner` 将十二份输入映射到连续 CPU 页锁定缓冲与设备缓冲，CUDA 时使用一次完整 H2D 并可捕获固定形状图；小结果取回也复用固定缓冲。图捕获限制可回退 CUDA eager，设备丢失、非法访问、OOM 不会伪装成正常 CPU 回退。模型更新与图重放使用同一参数存储，避免图继续读旧权重。
 
 **最重要不变量**：PPO 采样、实际执行和 `evaluate_actions()` 计算的分布一致。禁止在拿到 action/log_prob 后再按启发式替换方向或 B。
 
@@ -111,7 +111,7 @@ decision = runner.predict(observation, deterministic=False, lease=...)
 
 `action` 是 0–35 的同一已采样动作。环境会检查授权、暂停／焦点请求及当前场景，协调对话／菜单，核对持续射击 Z 的系统状态，然后发送确定顺序的输入批次。
 
-它从下发后的新控制样本开始保持至少两个原生 tick，末尾读完整池。完整结果用于判断死亡、阶段变化、原生时钟重置和资源变化。`info` 记录实际前一按键、计划、当前与结果激光／本体、原始时间戳、奖励分项和生存指标。
+它从下发后的新控制样本开始保持至少两个原生 tick，末尾读完整池。完整结果用于判断死亡、阶段变化、原生时钟重置和资源变化。`info` 保留实际前一按键、计划、当前与结果激光／本体的只读数组、原始时间戳、奖励分项和生存指标；重型列表转换与动作日志编码由独立 CPU 诊断进程完成。
 
 普通失焦和暂停转为可恢复控制状态；`SamplingInterrupted` 表达需重新观测，不能把中断动作当作正常经验。下发前观测过旧且近危险时最多刷新一次，第二次仍超预算只告警，不无限重试或凭空停训。
 
@@ -119,9 +119,9 @@ decision = runner.predict(observation, deterministic=False, lease=...)
 
 位置：[rewards.py](../th06ai/rewards.py)。它基于真实前后观测计算奖励，不发送任何键。
 
-奖励 v8 包括按实际 tick 比例的存活、首次中弹成本、顶墙及驻留反馈、真实库存／点道具净增、Power 势函数进度、资源目标势函数、射击对齐和可信 HP 减少。死亡时终止相关势函数，避免靠“拿 P → 死亡 → 重拿”循环刷反馈。
+奖励 v9 包括按实际 tick 比例的存活、首次中弹成本、顶墙及驻留反馈、真实库存／点道具净增、Power 势函数进度、资源目标势函数、射击对齐和可信 HP 减少。死亡时终止相关势函数，避免靠“拿 P → 死亡 → 重拿”循环刷反馈。
 
-资源边际奖励使用预算递减；库存上限和实际需要还会改变目标权重。原始分数和擦弹主要作为诊断与上下文，不直接为擦弹加分。新手“顺路、安全再擦”的原则体现为不奖励主动贴弹，而不是给网络一段文字。
+道具可达性使用经验证的当前自机高速移动速度；未知时保留原 4px/tick 基线。资源边际奖励使用预算递减；库存上限和实际需要还会改变目标权重。原始分数和擦弹主要作为诊断与上下文，不直接为擦弹加分。新手“顺路、安全再擦”的原则体现为不奖励主动贴弹，而不是给网络一段文字。
 
 ### `PausablePPO.collect_rollouts()` 与 `TrainingCallback`
 
@@ -130,7 +130,7 @@ decision = runner.predict(observation, deterministic=False, lease=...)
 ```text
 控制 gate → 必要时刷新观测 → 同分布采样
 → 实际 env.step → 保存实际转移 → 更新计数/回调
-→ rollout 满 → 确认暂停 → 写诊断 → PPO 更新
+→ rollout 满 → 确认暂停 → 复制并排队轨迹 → PPO 更新
 → 保存已更新模型 → 恢复游戏并重新观测
 ```
 
@@ -170,7 +170,7 @@ worker 心跳与 GPU 数据超时是不同阈值；暂停不停止保护。F8 �
 
 位置：[console_stream.py](../th06ai/console_stream.py)、[stream.ts](../frontend/src/stream.ts)。
 
-多个页面共享一个采样器。首帧 snapshot，之后 delta 包含 `base/revision/set/remove` 和曲线 append/reset；无变化发 heartbeat。慢客户端合并到最新，不堆积逐帧队列。前端发现版本断层、缺少初帧或游标不一致时重新完整同步。
+模型库由 CheckpointCatalog 缓存元数据，在后台增量扫描，完成后短暂加锁发布；模型选择与加载仍重新核对路径和文件。多个页面共享一个采样器。首帧 snapshot，之后 delta 包含 `base/revision/set/remove` 和曲线 append/reset；无变化发 heartbeat。慢客户端合并到最新，不堆积逐帧队列。前端发现版本断层、缺少初帧或游标不一致时重新完整同步。
 
 前端保留未变化对象引用供 memo 跳过重绘。不要在每次心跳都把完整状态深拷贝；也不要为了减少 JSON 成本直接搬运完整弹幕池到浏览器。
 

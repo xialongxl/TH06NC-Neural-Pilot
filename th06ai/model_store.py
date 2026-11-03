@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,7 +52,56 @@ def inspect_checkpoint(path: Path, *, verify=False) -> Checkpoint:
 def list_checkpoints(root: Path | None = None):
     directory = root or ROOT / "models"
     entries = [inspect_checkpoint(p) for p in directory.rglob("*.zip") if ".pending" not in p.name]
-    return sorted(entries, key=lambda c: (c.metadata.get("time", ""), c.path.name == "latest.zip"), reverse=True)
+    return sorted(entries, key=lambda c: (c.metadata.get("time", ""), c.path.name == "latest.zip", str(c.path)), reverse=True)
+
+
+class CheckpointCatalog:
+    """Incremental display cache; loading still performs fresh path/hash checks."""
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+        self._entries = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _stamp(entry):
+        stat = entry.stat()
+        return stat.st_mtime_ns, stat.st_size, stat.st_ino
+
+    def scan(self):
+        # Only the scanner owns this cache. No console/control lock is held.
+        with self._lock:
+            updated, result = {}, []
+            pending, visited = [self.root], set()
+            while pending:
+                folder = pending.pop()
+                try:
+                    folder = folder.resolve()
+                    if folder in visited or not folder.is_relative_to(self.root):
+                        continue
+                    visited.add(folder)
+                    with os.scandir(folder) as stream:
+                        files = {}
+                        for entry in stream:
+                            if entry.is_dir(follow_symlinks=False):
+                                pending.append(Path(entry.path))
+                            elif entry.is_file() and entry.name.endswith(('.zip', '.json')):
+                                files[entry.name] = entry
+                        for name, entry in files.items():
+                            if not name.endswith('.zip') or '.pending' in name:
+                                continue
+                            path = Path(entry.path)
+                            meta = files.get(path.with_suffix('.json').name)
+                            stamp = (self._stamp(entry), self._stamp(meta) if meta else None)
+                            cached = self._entries.get(path)
+                            value = cached[1] if cached and cached[0] == stamp else inspect_checkpoint(path)
+                            if value.path.is_relative_to(self.root):
+                                result.append(value)
+                                if value.metadata:
+                                    updated[path] = (stamp, value)
+                except (FileNotFoundError, NotADirectoryError):
+                    continue  # A concurrent atomic save can move a candidate.
+            self._entries = updated
+            return sorted(result, key=lambda c: (c.metadata.get('time', ''), c.path.name == 'latest.zip', str(c.path)), reverse=True)
 
 
 def preserve_checkpoint(path: Path, root: Path | None = None):
@@ -66,4 +117,5 @@ def preserve_checkpoint(path: Path, root: Path | None = None):
     if not target.exists():
         shutil.copy2(path, target)
         atomic_json(target.with_suffix(".json"), checkpoint.metadata)
+        atomic_json(target.parent.parent / 'catalog_revision.json', {'checkpoint': target.name, 'digest': digest})
     return target

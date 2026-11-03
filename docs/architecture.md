@@ -23,6 +23,7 @@ flowchart TB
   API[本机 FastAPI / ConsoleService]
   Guard[独立 supervisor]
   Worker[受保护 worker]
+  Diagnostics[CPU 诊断子进程]
   Game[用户启动的 th06nc.exe]
   Nvml[NVML 采样线程 / 驱动事件]
   Keys[全局 F7 F8 监听与分派]
@@ -33,6 +34,7 @@ flowchart TB
   API -->|启动 python -m th06ai| Guard
   Guard --> Job
   Job --> Worker
+  Job --> Diagnostics
   Nvml --> Guard
   Keys --> Guard
   Guard -->|健康采样后发布| Lease
@@ -40,6 +42,8 @@ flowchart TB
   Worker -->|只读| Game
   Worker -->|普通 SendInput| Game
   Worker --> Disk
+  Worker -->|有界队列与私有管道| Diagnostics
+  Diagnostics -->|CSV NPZ 诊断| Disk
   Guard --> Disk
   Disk --> API
   API -->|低频 SSE| Browser
@@ -77,7 +81,7 @@ flowchart TB
 
 `worker.py` 先等授权，再导入 Torch 和建立环境。模式包括自检、校准、训练、试玩、评估及剖析。游戏接管模式通过 `TouhouEnv` 统一持有读取器、按键控制器、奖励状态和观测构建器。
 
-worker 内部的心跳线程约每 200ms 写 `worker.json`。原始诊断另用有界队列和后台线程写盘。`PolicyRunner` 使用锁串行复用推理缓冲；Rust 搜索则使用每次调用独立的拥有型输入。
+worker 内部的心跳线程约每 200ms 写 `worker.json`。原始诊断经有界队列与私有管道交给独立 CPU 子进程；发送／结果线程只负责传输和状态。诊断进程不接入游戏或 CUDA，普通结束有有限排空时间，硬件急停由所属 Job 一起终止。`PolicyRunner` 使用锁串行复用推理缓冲；Rust 搜索使用每次调用独立的拥有型输入。
 
 ## 3. 启动与关闭
 

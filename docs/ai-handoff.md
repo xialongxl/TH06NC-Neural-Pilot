@@ -28,10 +28,10 @@ React + TypeScript
 
 - 当前没有数据库、远程调度器、WebSocket、MsgPack 或浏览器端模型。
 - 配置是 config.json，没有自动 dotenv；示例环境变量不能当作已实现设置。
-- 低频 UI 推送与高频动作、250ms GPU 采样分离。
+- 低频 UI 推送与高频动作、250ms GPU 采样分离。CPU 诊断子进程经有界私有管道接收 owned 数据，压缩与动作行编码不在控制线程。
 - CPython 包名和 CLI 仍是 th06ai；不要因项目展示名重命名序列化类路径。
 - 个人游戏路径只在 Git 忽略的本机 config，根目录由代码位置推导。
-- 独立搜索扩展和碰撞／按键扩展是两个安装位置，扩展缺失有参考路径。
+- 默认原生构建安装 native_runtime（ABI v3，含 Q 与只读批量采集）；旧 native_planner 作为独立搜索兼容路径。扩展缺失有参考路径。
 - 难度、自机与 Practice 由操作者选择；请求与原生读数分开。观测 v9 追加 19 维上下文，v8 迁移保留原列和 Adam；Practice 结算切断 GAE，不伪造战斗动作。参见[游戏设置](game-settings.md)。
 
 ## 历史上反复发生过的错误
