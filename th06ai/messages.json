@@ -24,6 +24,7 @@
   "console.battle_geometry_legend": ["外框为观测范围，虚线框为移动范围。内圈低速、外圈高速，白边为模型选择，浅色虚线为预测路径。", "Outer border shows observation bounds. The dashed box shows movement bounds. Inner arrows are focused, outer arrows are unfocused. White outlines mark the choice, and the dashed line is its prediction."],
   "console.battle_turn_on": ["开启战场图", "Enable battle view"],
   "console.battle_turn_off": ["关闭战场图", "Disable battle view"],
+  "console.battle_backend_restart": ["当前后台版本还没有战场图。请先保存并结束训练，再关闭服务并重新打开 LaunchAI.exe。", "This backend version lacks the battle view. Save and finish any active training, shut down the service, then reopen LaunchAI.exe."],
   "console.battle_obs_help": ["将此页面作为 OBS 浏览器源放在游戏画面旁。每次更新显示一份独立的决策快照。", "Add this page as an OBS Browser Source beside the game. Each update shows one decision snapshot."],
   "console.battle_obs_url": ["OBS 战场图链接", "OBS Battle View URL"],
   "console.battle_copy_url": ["复制战场图链接", "Copy battle view URL"],

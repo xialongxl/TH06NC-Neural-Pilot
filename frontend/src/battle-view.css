@@ -31,6 +31,7 @@
 .battle-panel-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 330px); gap: 14px; padding: 14px; }
 .battle-panel-content .battle-view { min-height: 390px; }
 .battle-instructions { grid-column: 1; color: var(--muted, #a6b5c7); }
+.battle-instructions[role="status"] { grid-column: 1 / -1; margin: 0; }
 .battle-instructions p { margin: 0 0 10px; }
 .battle-link { display: flex; align-items: center; gap: 7px; }
 .battle-link input { flex: 1; min-width: 0; padding: 7px; color: inherit; background: transparent; border: 1px solid #52637a; border-radius: 5px; }

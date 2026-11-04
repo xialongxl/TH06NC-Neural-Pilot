@@ -141,34 +141,35 @@ export function BattleViewPage() {
 }
 
 export function BattleViewPanel({ enabled, available, toggle }: {
-  enabled: boolean; available: boolean; toggle: () => void
+  enabled: boolean | undefined; available: boolean; toggle: () => void
 }) {
   const { t, locale } = useI18n()
   const [copied, setCopied] = useState(false)
-  const url = new URL('/battle-view', window.location.origin)
-  url.searchParams.set('lang', locale)
+  const url = enabled === undefined ? null : new URL('/battle-view', window.location.origin)
+  url?.searchParams.set('lang', locale)
   return <section className="panel battle-panel">
     <div className="panel-heading"><div className="heading-icon"><Crosshair size={18} /></div>
       <h2>{t('console.battle_title')}</h2>
-      <button type="button" className="btn secondary" role="switch" aria-checked={enabled}
-        aria-label={t('console.battle_title')} disabled={!available} onClick={toggle}>
+      <button type="button" className="btn secondary" role="switch" aria-checked={enabled ?? false}
+        aria-label={t('console.battle_title')} disabled={!available || !url} onClick={toggle}>
         {t(enabled ? 'console.battle_turn_off' : 'console.battle_turn_on')}
       </button>
     </div>
     <div className="battle-panel-content">
-      <div className="battle-instructions">
-        <p>{t('console.battle_obs_help')}</p>
-        <div className="battle-link">
-          <input value={url.href} readOnly aria-label={t('console.battle_obs_url')} onFocus={event => event.currentTarget.select()} />
-          <button type="button" className="icon-btn" aria-label={t('console.battle_copy_url')}
-            onClick={async () => {
-              try { await navigator.clipboard.writeText(url.href); setCopied(true) } catch { setCopied(false) }
-            }}><Copy size={16} /></button>
-          <a className="icon-btn" href={url.href} target="_blank" rel="noreferrer"
-            aria-label={t('console.battle_open_page')}><ExternalLink size={16} /></a>
-        </div>
-        {copied && <small role="status">{t('console.battle_url_copied')}</small>}
-      </div>
+      {!url ? <p className="battle-instructions" role="status">{t('console.battle_backend_restart')}</p>
+        : <div className="battle-instructions">
+          <p>{t('console.battle_obs_help')}</p>
+          <div className="battle-link">
+            <input value={url.href} readOnly aria-label={t('console.battle_obs_url')} onFocus={event => event.currentTarget.select()} />
+            <button type="button" className="icon-btn" aria-label={t('console.battle_copy_url')}
+              onClick={async () => {
+                try { await navigator.clipboard.writeText(url.href); setCopied(true) } catch { setCopied(false) }
+              }}><Copy size={16} /></button>
+            <a className="icon-btn" href={url.href} target="_blank" rel="noreferrer"
+              aria-label={t('console.battle_open_page')}><ExternalLink size={16} /></a>
+          </div>
+          {copied && <small role="status">{t('console.battle_url_copied')}</small>}
+        </div>}
       {enabled && <BattleView locale={locale} />}
     </div>
   </section>

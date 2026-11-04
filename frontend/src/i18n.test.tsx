@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import App from './App'
+import { BattleViewPanel } from './BattleView'
 import { LanguageProvider, message, translateLog, translateSaved } from './i18n'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -24,5 +25,25 @@ describe('console localization', () => {
     expect(translateSaved(reason, 'zh-CN')).toBe(reason)
     expect(translateLog(`RuntimeError: ${reason}\r\nC:\\模型\\latest.zip`, 'en'))
       .toBe('RuntimeError: AI error: GPU core temperature reached the stop threshold: 71°C ≥ 70°C\r\nC:\\模型\\latest.zip')
+  })
+
+  it.each([
+    ['en', 'This backend version lacks the battle view'],
+    ['zh-CN', '当前后台版本还没有战场图'],
+  ])('explains a pre-battle-view backend in %s without offering the switch or source URL', (locale, hint) => {
+    vi.stubGlobal('localStorage', { getItem: () => locale })
+    const html = renderToStaticMarkup(<LanguageProvider>
+      <BattleViewPanel enabled={undefined} available toggle={() => {}} />
+    </LanguageProvider>)
+    expect(html).toContain(hint)
+    expect(html).toMatch(/<button[^>]+role="switch"[^>]+disabled=""/)
+    expect(html).not.toContain('/battle-view?')
+  })
+
+  it('keeps the switch available when the backend reports the feature is off', () => {
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:18765' } })
+    const html = renderToStaticMarkup(<BattleViewPanel enabled={false} available toggle={() => {}} />)
+    expect(html).toContain('http://127.0.0.1:18765/battle-view?lang=zh-CN')
+    expect(html).not.toMatch(/<button[^>]+role="switch"[^>]+disabled=""/)
   })
 })
