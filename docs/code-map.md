@@ -66,6 +66,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [web_console.py](../th06ai/web_console.py) | 请求模型、回环路由、token/Origin、SSE、静态 UI | ConsoleService、SnapshotBroker |
 | [console_service.py](../th06ai/console_service.py) | 模型 ID、会话状态、明确操作、日志与本机配置缓存 | model_store、control、files |
 | [console_stream.py](../th06ai/console_stream.py) | 共享采样、DTO、diff、曲线游标、SSE 编码与背压 | 服务快照、前端 stream.ts |
+| [battle_view.py](../th06ai/battle_view.py) | 独立战场流、最新快照槽和调试图打包 | 只读展示、诊断子进程 |
 | [dashboard.py](../th06ai/dashboard.py) | 旧 Tk 兼容控制台 | 同一 CLI／保护协议；非主界面 |
 
 ### 独立硬件保护与 Windows 边界

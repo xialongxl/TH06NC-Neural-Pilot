@@ -108,8 +108,9 @@ class SnapshotBroker:
     Slow clients diff against the latest snapshot rather than queuing every
     intermediate frame. A reconnect always receives a fresh complete state.
     """
-    def __init__(self, service):
+    def __init__(self, service, battle_view_enabled=None):
         self.service = service
+        self.battle_view_enabled = battle_view_enabled
         self.latest = None
         self.raw = None
         self.samples = 0
@@ -138,6 +139,8 @@ class SnapshotBroker:
                 if not self.clients:
                     break
                 raw = await asyncio.to_thread(self.service.snapshot)
+                if self.battle_view_enabled is not None:
+                    raw['battle_view_enabled'] = self.battle_view_enabled()
                 self._last_sample_at = time.perf_counter()
                 state = display_state(raw)
                 self.raw = raw

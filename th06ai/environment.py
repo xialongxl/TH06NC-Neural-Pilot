@@ -828,7 +828,8 @@ class TouhouEnv(gym.Env):
             self._advance_dialogue()
         if f.paused or not f.stage_active:
             self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
-        if f.tick < before.tick or context_changed(before,f):
+        crossed_boundary = f.tick < before.tick or context_changed(before,f)
+        if crossed_boundary:
             self._rebase_sampling(f,before)
         delta = f.tick - before.tick
         # A lightweight sample can observe the real Miss before the complete
@@ -852,6 +853,11 @@ class TouhouEnv(gym.Env):
         self.last_action = int(action)
         self._observe_control(f, int(action))
         latency = timing.finish()
+        diagnostics = getattr(self,'diagnostics',None)
+        view = getattr(diagnostics, 'battle_view', None)
+        if (view is not None and view.demand is not None and not (died or truncated or crossed_boundary)
+                and phase_of(before) in ('combat', 'boss') and phase_of(f) in ('combat', 'boss')):
+            view.capture(before, decision_plan, int(action), latency['game_input_state'], self.total_steps)
         planner = self.builder.planner
         if planner is not None:
             planner.record_latency(latency)
@@ -935,7 +941,6 @@ class TouhouEnv(gym.Env):
             info['episode_diagnostics'].update(stage_id=f.stage_id, stage_label=stage_label(f.stage_id),
                                                stage_seconds=self.stage_ticks/60,
                                                stage_changes=getattr(self, 'stage_changes', 0))
-        diagnostics = getattr(self,'diagnostics',None)
         if diagnostics is not None:
             diagnostics.record(info,getattr(self,'decision_context',{}).get('training_step') or self.total_steps)
         self.status(phase=msg('backend.collecting_policy_samples'), message=msg('backend.the_policy_selects_direction_and_focus_speed'),

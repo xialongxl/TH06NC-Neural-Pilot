@@ -280,6 +280,17 @@ class ConsoleService:
                     "gpu_live": active and gpu_age is not None and gpu_age < self.config.safety.telemetry_timeout_seconds
                         and isinstance(gpu.get("temperature_c"), (int, float)) and math.isfinite(gpu["temperature_c"])}
 
+    def battle_view_run(self):
+        with self._lock:
+            if self.preview or self.shutdown.get('state') in ('waiting', 'stopping', 'closed'):
+                return None
+            path, status = self._session()
+            if (path and status.get('mode') in ('train', 'play', 'evaluate') and status.get('state') == 'running'
+                    and session_active(status) and not (path / 'PAUSE').exists()
+                    and not (path / 'STOP').exists()):
+                return path
+        return None
+
     def _session(self):
         pointer = self._read_json(self.root / "runs/current.json")
         candidate = pointer.get("run_dir")

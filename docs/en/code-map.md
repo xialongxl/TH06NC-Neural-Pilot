@@ -62,6 +62,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | [web_console.py](../../th06ai/web_console.py) | Loopback routes, schemas, Origin and token checks, SSE, and static files. |
 | [console_service.py](../../th06ai/console_service.py) | Explicit session operations, checkpoint IDs, local state, and logs. |
 | [console_stream.py](../../th06ai/console_stream.py) | Shared sampling, display DTO, deltas, backpressure, and curve cursors. |
+| [battle_view.py](../../th06ai/battle_view.py) | Opt-in battle stream, latest-only slot, and diagnostic scene encoding. |
 | [dashboard.py](../../th06ai/dashboard.py) | Legacy Tk console using the same CLI and protection path. |
 
 ### Independent protection and Windows boundaries

@@ -147,6 +147,121 @@
       ]
     },
     {
+      "path": "th06ai/battle_view.py",
+      "sha256": "ca209b8d3ada4e27cd0cca0f3a321f5088145ca97d5a83c1de85351e09120ea5",
+      "summary": "Optional, latest-only visualization of an already executed decision.",
+      "imports": [
+        ".console_stream",
+        ".files",
+        ".navigation",
+        ".planner_spec",
+        "__future__",
+        "asyncio",
+        "json",
+        "math",
+        "numpy",
+        "os",
+        "secrets",
+        "time"
+      ],
+      "symbols": [
+        {
+          "name": "_write_latest",
+          "kind": "function",
+          "line": 23,
+          "signature": "path, payload"
+        },
+        {
+          "name": "BattleViewPublisher",
+          "kind": "class",
+          "line": 34,
+          "bases": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 37,
+              "signature": "self, root"
+            },
+            {
+              "name": "capture",
+              "line": 44,
+              "signature": "self, frame, plan, action, input_state, sequence"
+            },
+            {
+              "name": "next_job",
+              "line": 55,
+              "signature": "self"
+            }
+          ]
+        },
+        {
+          "name": "_coordinates",
+          "kind": "function",
+          "line": 86,
+          "signature": "array, limit, columns"
+        },
+        {
+          "name": "publish_battle_view",
+          "kind": "function",
+          "line": 93,
+          "signature": "root, generation, captured_ns, sequence, geometry, planning, action, input_state"
+        },
+        {
+          "name": "BattleViewStream",
+          "kind": "class",
+          "line": 144,
+          "bases": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 147,
+              "signature": "self, run"
+            },
+            {
+              "name": "_publish",
+              "line": 160,
+              "signature": "self, key, **data"
+            },
+            {
+              "name": "set_enabled",
+              "line": 167,
+              "signature": "self, enabled"
+            },
+            {
+              "name": "_start",
+              "line": 175,
+              "signature": "self"
+            },
+            {
+              "name": "_poll",
+              "line": 179,
+              "signature": "self, generation"
+            },
+            {
+              "name": "_revoke",
+              "line": 207,
+              "signature": "self"
+            },
+            {
+              "name": "_sample",
+              "line": 220,
+              "signature": "self"
+            },
+            {
+              "name": "events",
+              "line": 243,
+              "signature": "self, request"
+            },
+            {
+              "name": "close",
+              "line": 264,
+              "signature": "self"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "path": "th06ai/body_state.py",
       "sha256": "1d893f0222cf853c5b80100dad1d0b436fd1bff39fec14ccf861a3bc6fddedb9",
       "summary": "Observed contact rectangles and motion, independent of attack targets.",
@@ -406,7 +521,7 @@
     },
     {
       "path": "th06ai/console_service.py",
-      "sha256": "10188fe6460ad5a3a5e27d654799ba130e30a476c3cad1748a1e93eb5d264cf9",
+      "sha256": "3cb85e2b33e57636ae508ea1bdac7dc12a1ba6919dfdbd8554215d188be81a5f",
       "summary": "UI-independent session controls. Reading state never starts game/GPU work.",
       "imports": [
         ".acceleration",
@@ -560,63 +675,68 @@
               "signature": "self"
             },
             {
-              "name": "_session",
+              "name": "battle_view_run",
               "line": 283,
               "signature": "self"
             },
             {
+              "name": "_session",
+              "line": 294,
+              "signature": "self"
+            },
+            {
               "name": "_writable",
-              "line": 299,
+              "line": 310,
               "signature": "self"
             },
             {
               "name": "_activate_game",
-              "line": 303,
+              "line": 314,
               "signature": "self"
             },
             {
               "name": "focus_game",
-              "line": 315,
-              "signature": "self"
-            },
-            {
-              "name": "probe_game",
               "line": 326,
               "signature": "self"
             },
             {
+              "name": "probe_game",
+              "line": 337,
+              "signature": "self"
+            },
+            {
               "name": "set_acceleration",
-              "line": 357,
+              "line": 368,
               "signature": "self, collision, input_backend"
             },
             {
               "name": "start",
-              "line": 376,
+              "line": 387,
               "signature": "self, mode, minutes, model_id=None, goal=None, game_setup=None"
             },
             {
               "name": "control",
-              "line": 424,
+              "line": 435,
               "signature": "self, action, *, paused=None"
             },
             {
               "name": "request_shutdown",
-              "line": 450,
+              "line": 461,
               "signature": "self, *, port=DEFAULT_CONSOLE_PORT"
             },
             {
               "name": "shutdown_ready",
-              "line": 466,
+              "line": 477,
               "signature": "self"
             },
             {
               "name": "shutdown_status",
-              "line": 483,
+              "line": 494,
               "signature": "self, state, message"
             },
             {
               "name": "logs",
-              "line": 489,
+              "line": 500,
               "signature": "self"
             }
           ]
@@ -625,7 +745,7 @@
     },
     {
       "path": "th06ai/console_stream.py",
-      "sha256": "f3a10ff025d797cb4fd1731840566ca82b011e9041650cc38c0aa165beffd579",
+      "sha256": "a7ee9a2d24fb3dabbee298473f1510237690c0be37a6ee8df15cbe624c7b9883",
       "summary": "Shared, bounded UI snapshots and incremental SSE. No training controls.",
       "imports": [
         ".i18n",
@@ -689,21 +809,21 @@
             {
               "name": "__init__",
               "line": 111,
-              "signature": "self, service"
+              "signature": "self, service, battle_view_enabled=None"
             },
             {
               "name": "_run",
-              "line": 126,
+              "line": 127,
               "signature": "self"
             },
             {
               "name": "events",
-              "line": 164,
+              "line": 167,
               "signature": "self, request, *, hidden=False, protocol=2"
             },
             {
               "name": "close",
-              "line": 222,
+              "line": 225,
               "signature": "self, *, shutdown=False"
             }
           ]
@@ -975,9 +1095,10 @@
     },
     {
       "path": "th06ai/diagnostic_writer.py",
-      "sha256": "33fe1f681faf3a311dca4e4ce732293ff74358b2eb75cfe3cd4c90238d5910ba",
+      "sha256": "bd1230a4779cfcdabdb0dcd13c669ce35d48966a0c56454c31098a78c7f6123b",
       "summary": "Bounded, CPU-only diagnostic process. Private pipes; never opens a game/GPU.",
       "imports": [
+        ".battle_view",
         ".diagnostics",
         ".files",
         ".log_rows",
@@ -998,48 +1119,48 @@
         {
           "name": "write_npz",
           "kind": "function",
-          "line": 16,
+          "line": 18,
           "signature": "path, payload, compression_level=1"
         },
         {
           "name": "DiagnosticWriter",
           "kind": "class",
-          "line": 34,
+          "line": 36,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 36,
+              "line": 38,
               "signature": "self, root, *, capacity=256"
             },
             {
               "name": "_error",
-              "line": 63,
+              "line": 66,
               "signature": "self, message"
             },
             {
               "name": "submit",
-              "line": 67,
+              "line": 70,
               "signature": "self, job, *, critical=False"
             },
             {
               "name": "_send",
-              "line": 82,
+              "line": 85,
               "signature": "self"
             },
             {
               "name": "_receive",
-              "line": 100,
+              "line": 118,
               "signature": "self"
             },
             {
               "name": "status",
-              "line": 116,
+              "line": 137,
               "signature": "self"
             },
             {
               "name": "close",
-              "line": 121,
+              "line": 142,
               "signature": "self, timeout=3.0"
             }
           ]
@@ -1047,14 +1168,14 @@
         {
           "name": "writer_main",
           "kind": "function",
-          "line": 151,
+          "line": 172,
           "signature": "root"
         }
       ]
     },
     {
       "path": "th06ai/diagnostics.py",
-      "sha256": "8547f6ebb03d462b8748b7b974efd397a7403a6ce703836271f1414096386317",
+      "sha256": "d9334c7d931e3d331028183794267f90fb7b26b6bb45c8d63dd6c8a7e7b4acae",
       "summary": "Bounded raw snapshot ring and asynchronous diagnostic I/O; no control policy.",
       "imports": [
         ".diagnostic_writer",
@@ -1083,62 +1204,62 @@
             },
             {
               "name": "observe",
-              "line": 27,
+              "line": 28,
               "signature": "self, frame"
             },
             {
               "name": "observe_control",
-              "line": 36,
+              "line": 37,
               "signature": "self, sample"
             },
             {
               "name": "event",
-              "line": 39,
+              "line": 40,
               "signature": "self, **values"
             },
             {
               "name": "record",
-              "line": 42,
+              "line": 43,
               "signature": "self, info, steps"
             },
             {
               "name": "_put",
-              "line": 54,
+              "line": 55,
               "signature": "self, job, critical=False"
             },
             {
               "name": "record_action",
-              "line": 57,
+              "line": 58,
               "signature": "self, info, steps"
             },
             {
               "name": "record_trace",
-              "line": 60,
+              "line": 61,
               "signature": "self, filename, payload, compression_level=1"
             },
             {
               "name": "_csv",
-              "line": 63,
+              "line": 64,
               "signature": "self, name, row"
             },
             {
               "name": "_ragged",
-              "line": 72,
+              "line": 73,
               "signature": "rows, width"
             },
             {
               "name": "_death",
-              "line": 77,
+              "line": 78,
               "signature": "self, death_id, frames, controls, info"
             },
             {
               "name": "status",
-              "line": 114,
+              "line": 115,
               "signature": "self"
             },
             {
               "name": "close",
-              "line": 117,
+              "line": 118,
               "signature": "self, timeout=3.0"
             }
           ]
@@ -1184,7 +1305,7 @@
     },
     {
       "path": "th06ai/environment.py",
-      "sha256": "c0820539f926409eefc8a8a0b6098ec3b49eb5c617a32c11ca9b7152aed7ae60",
+      "sha256": "f4b3d71c726e981a76bf088d9fd243b6ec8d77d8ce1c8127edbb9fe931c69548",
       "summary": "",
       "imports": [
         ".acceleration",
@@ -1408,7 +1529,7 @@
             },
             {
               "name": "close",
-              "line": 981,
+              "line": 986,
               "signature": "self"
             }
           ]
@@ -3287,9 +3408,10 @@
     },
     {
       "path": "th06ai/web_console.py",
-      "sha256": "b77e2084a965a6ac3a3b365927b0013232a81e2709ff764d6b1a5bf6c1cb7453",
+      "sha256": "1c7db31ad76fcc63a84f5f1543f6b8a64256a7550902a2bcd0dfd7721c2144cf",
       "summary": "Loopback REST/SSE server and static frontend; owns no CUDA/game handles.",
       "imports": [
+        ".battle_view",
         ".config",
         ".console_service",
         ".console_stream",
@@ -3320,7 +3442,7 @@
         {
           "name": "GameSetupRequest",
           "kind": "class",
-          "line": 31,
+          "line": 32,
           "bases": [
             "BaseModel"
           ],
@@ -3329,7 +3451,7 @@
         {
           "name": "StartRequest",
           "kind": "class",
-          "line": 39,
+          "line": 40,
           "bases": [
             "BaseModel"
           ],
@@ -3338,7 +3460,7 @@
         {
           "name": "ModelRequest",
           "kind": "class",
-          "line": 48,
+          "line": 49,
           "bases": [
             "BaseModel"
           ],
@@ -3347,7 +3469,16 @@
         {
           "name": "PauseRequest",
           "kind": "class",
-          "line": 53,
+          "line": 54,
+          "bases": [
+            "BaseModel"
+          ],
+          "methods": []
+        },
+        {
+          "name": "BattleViewRequest",
+          "kind": "class",
+          "line": 58,
           "bases": [
             "BaseModel"
           ],
@@ -3356,7 +3487,7 @@
         {
           "name": "AccelerationRequest",
           "kind": "class",
-          "line": 57,
+          "line": 62,
           "bases": [
             "BaseModel"
           ],
@@ -3365,13 +3496,13 @@
         {
           "name": "create_app",
           "kind": "function",
-          "line": 63,
+          "line": 68,
           "signature": "config: Config, *, root=ROOT, preview=False, service=None, frontend=None, shutdown=None, shutdown_timeout=45"
         },
         {
           "name": "launch",
           "kind": "function",
-          "line": 220,
+          "line": 241,
           "signature": "config: Config, *, preview=False, port=DEFAULT_CONSOLE_PORT, open_browser=True"
         }
       ]
@@ -3833,6 +3964,7 @@
     }
   ],
   "tests": [
+    "tests/test_battle_view.py",
     "tests/test_behavior_objective.py",
     "tests/test_bomb_policy.py",
     "tests/test_combat.py",

@@ -23,6 +23,7 @@ class SessionDiagnostics:
         self.deaths=0
         self.written_deaths=0
         self.writer=DiagnosticWriter(self.root, capacity=queue_size)
+        self.battle_view=self.writer.battle_view
 
     def observe(self, frame):
         with self.lock:

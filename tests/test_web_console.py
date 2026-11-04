@@ -69,6 +69,18 @@ def test_explicit_web_focus_does_not_create_a_session_or_load_a_model(setup):
     assert response.status_code == 200 and response.json()['activated']
     assert not calls and not (root/'runs/current.json').exists()
 
+
+def test_battle_view_toggle_is_read_only_for_the_worker_and_uses_console_token(setup):
+    root, checkpoint, service, client, calls, initial = setup
+    assert initial['battle_view_enabled'] is False
+    assert client.post('/api/battle-view', json={'enabled': True}, headers={'X-Console-Token': ''}).status_code == 403
+    assert client.post('/api/battle-view', json={'enabled': 'true'}).status_code == 422
+    assert client.post('/api/battle-view', json={'enabled': True}).json()['enabled'] is True
+    assert client.get('/api/state').json()['battle_view_enabled'] is True
+    assert client.get('/battle-view').status_code == 200
+    assert not calls and not (root / 'runs').exists()
+    assert client.post('/api/battle-view', json={'enabled': False}).json()['enabled'] is False
+
 def test_acceleration_changes_only_idle_config_without_starting_a_worker(setup):
     root,checkpoint,service,client,calls,_=setup
     before=checkpoint.read_bytes()

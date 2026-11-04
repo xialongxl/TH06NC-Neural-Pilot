@@ -12,6 +12,8 @@ import threading
 import time
 import zipfile
 
+from .battle_view import BattleViewPublisher, publish_battle_view
+
 
 def write_npz(path, payload, compression_level=1):
     import numpy as np
@@ -46,6 +48,7 @@ class DiagnosticWriter:
         self.close_result = None
         self.sender_stop = threading.Event()
         self.process = self.sender = self.receiver = None
+        self.battle_view = BattleViewPublisher(self.root)
         try:
             with (self.root / 'diagnostic_worker.log').open('ab') as log:
                 self.process = subprocess.Popen([sys.executable, '-m', 'th06ai.diagnostic_writer', str(self.root)],
@@ -82,14 +85,29 @@ class DiagnosticWriter:
     def _send(self):
         try:
             while not self.sender_stop.is_set():
-                try:job = self.jobs.get(timeout=.05)
-                except queue.Empty:continue
+                queued = True
+                try:
+                    job = self.jobs.get_nowait()
+                except queue.Empty:
+                    try:
+                        job = self.battle_view.next_job()
+                    except (OSError, ValueError, TypeError, AttributeError, IndexError):
+                        job = None
+                    if job is not None and not self.jobs.empty():
+                        self.battle_view.in_flight = False
+                        job = None
+                    if job is None:
+                        try:job = self.jobs.get(timeout=.05)
+                        except queue.Empty:continue
+                    else:
+                        queued = False
                 try:
                     # Only this process creates the pipe and its writer. Never
                     # deserialize pickle from HTTP, model metadata or disk here.
                     pickle.dump(job, self.process.stdin, protocol=5)
                     self.process.stdin.flush()
-                finally:self.jobs.task_done()
+                finally:
+                    if queued:self.jobs.task_done()
                 if job[0] == 'close':break
         except (OSError, ValueError, pickle.PickleError) as error:
             self.failed = True
@@ -101,6 +119,9 @@ class DiagnosticWriter:
         try:
             for line in self.process.stdout:
                 message = json.loads(line)
+                if message.get('kind') == 'battle_view':
+                    self.battle_view.in_flight = False
+                    continue
                 with self.lock:
                     self.counts.update(message.get('counts', {}))
                     if message.get('kind') == 'trace':self.pending_traces = max(0, self.pending_traces-1)
@@ -161,6 +182,13 @@ def writer_main(root):
         except EOFError:break
         kind, error = job[0], None
         if kind == 'close':break
+        if kind == 'battle_view':
+            try:
+                publish_battle_view(sink.root, *job[1:])
+            except (OSError, ValueError, TypeError, IndexError):
+                pass  # Best-effort live frame, independent of retained diagnostics.
+            print('{"kind":"battle_view"}', flush=True)
+            continue
         started = time.perf_counter_ns()
         try:
             if kind == 'death':

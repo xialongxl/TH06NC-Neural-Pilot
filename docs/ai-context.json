@@ -54,7 +54,7 @@
     "reward_policy": ["tests/test_rewards.py", "tests/test_reward_balance.py", "tests/test_behavior_objective.py", "tests/test_power_progress.py", "tests/test_graze_principle.py", "tests/test_policy.py", "tests/test_bomb_policy.py"],
     "learning_storage": ["tests/test_learning.py", "tests/test_model_store.py", "tests/test_evaluation_progress.py"],
     "environment_timing": ["tests/test_environment.py", "tests/test_training_controls.py", "tests/test_sampling_timing.py", "tests/test_input_latency.py", "tests/test_latency_profiler.py", "tests/test_optimization_contracts.py"],
-    "console": ["tests/test_dashboard.py", "tests/test_console_lifecycle.py", "tests/test_console_stream.py", "tests/test_web_console.py", "tests/test_files.py"]
+    "console": ["tests/test_dashboard.py", "tests/test_console_lifecycle.py", "tests/test_console_stream.py", "tests/test_web_console.py", "tests/test_files.py", "tests/test_battle_view.py"]
   },
   "publishing": {
     "workflow": "Use the current project root as the Git repository; inspect staged files before push.",

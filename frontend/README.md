@@ -23,12 +23,19 @@ npm run build
 
 Vite proxies `/api` to loopback port `18765`. Run `python deploy.py ui` from the repository root to install frontend dependencies and build. The build uses local assets. Refresh the production page after rebuilding.
 
+## AI Battle View for OBS
+
+In **Safety & Diagnostics**, enable **AI Battle View** and copy the Browser Source URL. Place that source beside the game capture in OBS. A 480 × 720 source is a starting size for the vertical layout. Enable **Shutdown source when not visible** if you want hidden scenes to disconnect. [OBS Browser Source](https://obsproject.com/kb/browser-source)
+
+The view displays one sampled decision at a time, with up to ten updates per second. The outer border is the observed field and the dashed rectangle is the movement boundary. The inner arrows show focused movement and the outer arrows show unfocused movement. A white outline marks the submitted policy action. The dotted route is a prediction, and the label reports the observed input state separately. The battle view clears when the sample expires.
+
 ## API and rendering contract
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/bootstrap?state=false` | Fetch the console token and protocol. Omitting the query preserves the legacy initial-state response. |
 | `GET /api/events?protocol=2&hidden=false` | Subscribe to the shared display stream. Protocol 1 remains available for legacy clients. |
+| `GET /api/battle-view/events`, `POST /api/battle-view` | Separate versioned live snapshots and a token-protected enable switch. The regular stream carries only the switch state. |
 | `GET /api/state` | Read the full diagnostic state. |
 | `GET /api/logs` | Fetch a bounded log tail with ETag and 304 support. Hidden pages suspend log polling. |
 | `POST /api/models/select` | Persist the selected checkpoint ID. |

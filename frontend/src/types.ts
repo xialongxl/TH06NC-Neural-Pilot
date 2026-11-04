@@ -48,6 +48,7 @@ export interface InputLatency {
   game_input_match_ms?: number | null;
 }
 export interface Snapshot {
+  battle_view_enabled?: boolean;
   shutdown?: { state: 'idle' | 'waiting' | 'stopping' | 'error' | 'closed'; message: string };
   game_probe?: { available: boolean; phase?: string; label: string; paused?: boolean; tick?: number;
     game_settings?: GameSettings;

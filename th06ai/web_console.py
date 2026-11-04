@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import Config, DEFAULT_CONSOLE_PORT, DEFAULT_PREVIEW_PORT, ROOT
+from .battle_view import BattleViewStream
 from .console_service import ConsoleError, ConsoleService
 from .console_stream import SnapshotBroker
 
@@ -54,6 +55,10 @@ class PauseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     paused: bool
 
+class BattleViewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool
+
 class AccelerationRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     collision:Literal['python','rust','auto']
@@ -65,7 +70,8 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     root = Path(root).resolve()
     service = service or ConsoleService(config, root=root, preview=preview)
     frontend = Path(frontend or root / "frontend/dist").resolve()
-    broker = SnapshotBroker(service)
+    battle_view = BattleViewStream(service.battle_view_run)
+    broker = SnapshotBroker(service, lambda: battle_view.enabled)
     @asynccontextmanager
     async def lifespan(app):
         try:
@@ -78,6 +84,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
                     await task
                 except asyncio.CancelledError:
                     pass
+            await battle_view.close()
             await broker.close()
     app = FastAPI(title="TH06NC Console", version="1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.console = service
@@ -100,7 +107,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")
-        if request.url.path.startswith("/api/") or request.url.path in {"/", "/index.html"}:
+        if request.url.path.startswith("/api/") or request.url.path in {"/", "/index.html", "/battle-view"}:
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -116,17 +123,30 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     def bootstrap(state: bool = True):
         result = {"token": token, "protocol": 2}
         if state:
-            result["state"] = service.snapshot()
+            result["state"] = {**service.snapshot(), 'battle_view_enabled': battle_view.enabled}
         return result
 
     @app.get("/api/state")
     def state():
-        return service.snapshot()
+        return {**service.snapshot(), 'battle_view_enabled': battle_view.enabled}
 
     @app.get("/api/events")
     async def events(request: Request, protocol: Literal["1", "2"] = "1", hidden: bool = False):
         return StreamingResponse(broker.events(request, protocol=int(protocol), hidden=hidden),
                                  media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
+
+    @app.get('/api/battle-view/events')
+    async def battle_view_events(request: Request):
+        return StreamingResponse(battle_view.events(request), media_type='text/event-stream',
+                                 headers={'X-Accel-Buffering': 'no'})
+
+    @app.post('/api/battle-view')
+    async def configure_battle_view(body: BattleViewRequest):
+        if service.preview:
+            raise ConsoleError(msg('backend.battle_view_unavailable_in_preview'), 403)
+        battle_view.set_enabled(body.enabled)
+        return {'enabled': battle_view.enabled, 'message': msg(
+            'backend.battle_view_enabled' if body.enabled else 'backend.battle_view_disabled')}
 
     @app.get("/api/logs")
     def logs(request: Request):
@@ -188,6 +208,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
             # Let the POST acknowledgement reach the browser before closing SSE.
             await asyncio.sleep(.2)
             shutdown()
+            await battle_view.close()
             await broker.close(shutdown=True)
         except Exception as error:
             service.shutdown_status('error', str(error))

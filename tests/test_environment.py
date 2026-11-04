@@ -152,3 +152,37 @@ def test_real_step_wires_reward_diagnostics_and_keeps_time_limit_nonterminal():
     assert "wall_push_seconds" in info["episode_diagnostics"]
     assert reward == pytest.approx(sum(info["reward_components"].values()))
     assert status[-1]["reward_version"] == REWARD_VERSION
+
+
+def test_battle_view_reuses_the_committed_action_without_extra_game_reads():
+    def step(enabled):
+        before = Frame(10, 192, 390, 3, False, False, np.empty((0, 3), np.float32),
+                       (8, 16, 368, 416), True, 0)
+        after = Frame(12, 195, 387, 3, True, False, before.bullets, before.bounds, True, 0)
+        env = object.__new__(TouhouEnv)
+        env.current = before
+        frames = iter((before, after))
+        trace, snapshots = [], []
+        env.reader = SimpleNamespace(read=lambda: (trace.append('read'), next(frames))[1],
+                                     window=SimpleNamespace(pid=1))
+        env.keys = SimpleNamespace(set=lambda keys: trace.append(keys), release=lambda: None)
+        env.lease = lambda: None
+        env._wait = lambda _: None
+        env.status = lambda **values: None
+        env.builder = ObservationBuilder()
+        env.builder.build(before)
+        env.reward_tracker = RewardTracker()
+        env.reward_tracker.reset(before)
+        env.start_tick = env.total_steps = env.episode_steps = env.episode_seconds = 0
+        env.episode_return = 0.0
+        view = SimpleNamespace(demand=enabled or None, capture=lambda *sample: snapshots.append(sample))
+        env.diagnostics = SimpleNamespace(record=lambda *_: None, status=lambda: {}, battle_view=view)
+        _, reward, terminated, truncated, _ = env.step(15)
+        return before, trace, snapshots, (reward, terminated, truncated)
+
+    _, disabled_trace, disabled_snapshots, disabled_result = step(False)
+    frame, enabled_trace, snapshots, enabled_result = step(True)
+    assert disabled_trace == enabled_trace == [{'right', 'up', 'shift', 'z'}, 'read', 'read']
+    assert disabled_result == enabled_result
+    assert not disabled_snapshots
+    assert len(snapshots) == 1 and snapshots[0][0] is frame and snapshots[0][2] == 15

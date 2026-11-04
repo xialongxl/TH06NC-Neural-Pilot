@@ -1,0 +1,39 @@
+.battle-view {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 9px;
+  padding: 15px;
+  color: #edf5fc;
+  background: #0b1522;
+  border: 1px solid #2b4057;
+  border-radius: 14px;
+  font: 500 13px/1.35 system-ui, sans-serif;
+}
+.battle-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.battle-header h2 { margin: 3px 0 0; font-size: clamp(15px, 3.8vw, 22px); letter-spacing: -.015em; }
+.battle-kicker { color: #94c6f0; font-size: 10px; letter-spacing: .15em; }
+.battle-chip { color: #afd0ea; background: #182b41; border-radius: 6px; padding: 5px 7px; white-space: nowrap; }
+.battle-viewport { position: relative; flex: 1; min-height: 0; background: #080f1a; border-radius: 8px; overflow: hidden; }
+.battle-viewport canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+.battle-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 18px; color: #adc2d8; text-align: center; }
+.battle-readout, .battle-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 13px; }
+.battle-readout { min-height: 2.7em; color: #bed3e6; }
+.battle-readout strong { color: #fff; }
+.battle-legend { font-size: 12px; }
+.battle-legend span { display: flex; gap: 5px; align-items: center; }
+.battle-legend i { width: 9px; height: 9px; border-radius: 2px; }
+.battle-caption { margin: 0; color: #9cb2c8; font-size: 11px; }
+.battle-page { box-sizing: border-box; width: 100%; height: 100vh; background: #0b1522; }
+.battle-page > .battle-view { box-sizing: border-box; height: 100%; border-radius: 0; }
+.battle-panel { margin: 16px 0; }
+.battle-panel .panel-heading .btn { margin-left: auto; }
+.battle-panel-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 330px); gap: 14px; padding: 14px; }
+.battle-panel-content .battle-view { min-height: 390px; }
+.battle-instructions { grid-column: 1; color: var(--muted, #a6b5c7); }
+.battle-instructions p { margin: 0 0 10px; }
+.battle-link { display: flex; align-items: center; gap: 7px; }
+.battle-link input { flex: 1; min-width: 0; padding: 7px; color: inherit; background: transparent; border: 1px solid #52637a; border-radius: 5px; }
+@media (max-width: 660px) {
+  .battle-panel-content { grid-template-columns: minmax(0, 1fr); }
+}
