@@ -1,7 +1,9 @@
+import { translator } from './i18n'
+import type { Locale } from './i18n'
 import type { GameSettings, GameSetup } from './types'
 
 export const DIFFICULTIES = { easy: 'Easy', normal: 'Normal', hard: 'Hard', lunatic: 'Lunatic', extra: 'Extra' }
-export const CHARACTERS = { reimu_a: '灵梦 A', reimu_b: '灵梦 B', marisa_a: '魔理沙 A', marisa_b: '魔理沙 B' }
+export const CHARACTERS = { reimu_a: 'console.reimu_a', reimu_b: 'console.reimu_b', marisa_a: 'console.marisa_a', marisa_b: 'console.marisa_b' } as const
 export const DEFAULT_SETUP: GameSetup = { mode: 'story', difficulty: 'normal', character: 'reimu_a', stage: 1 }
 
 export function validSetup(value: unknown): value is GameSetup {
@@ -21,10 +23,11 @@ export function changeSetup(previous: GameSetup, changes: Partial<GameSetup>): G
   return next
 }
 
-export function gameSettingsLabel(value?: GameSettings): string {
-  if (!value) return '等待识别游戏设置'
-  const modes = { story: '完整流程', practice: 'Practice', challenge: '挑战模式', spell_practice: '符卡练习' }
-  return (value.source === 'menu' ? '菜单选择 · ' : '') + [value.difficulty ? DIFFICULTIES[value.difficulty] : '难度待识别',
-    value.character ? CHARACTERS[value.character] : '自机待识别',
-    value.mode ? modes[value.mode] : '模式待识别'].join(' · ')
+export function gameSettingsLabel(value?: GameSettings, locale: Locale = 'zh-CN'): string {
+  const message = translator(locale)
+  if (!value) return message("console.waiting_for_game_settings")
+  const modes = { story: message("console.story"), practice: 'Practice', challenge: message("console.challenge_mode"), spell_practice: message("console.spell_practice") }
+  return (value.source === 'menu' ? message("console.menu_selection") : '') + [value.difficulty ? DIFFICULTIES[value.difficulty] : message("console.difficulty_unknown"),
+    value.character ? message(CHARACTERS[value.character]) : message("console.character_unknown"),
+    value.mode ? modes[value.mode] : message("console.mode_unknown")].join(' · ')
 }

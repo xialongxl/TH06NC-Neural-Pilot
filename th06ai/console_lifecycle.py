@@ -1,5 +1,6 @@
 """Local console launch/exit controls; never kill a PID or touch another project."""
 from __future__ import annotations
+from .i18n import msg
 
 import hashlib
 import json
@@ -36,11 +37,11 @@ def process_running(pid):
     if not handle:
         if ct.get_last_error() == 87:  # PID no longer exists
             return False
-        raise OSError('无法确认会话进程是否已经退出')
+        raise OSError(msg('backend.could_not_confirm_that_the_session_processes'))
     try:
         result = kernel.WaitForSingleObject(handle, 0)
         if result not in (0, 258):
-            raise OSError('无法确认会话进程是否已经退出')
+            raise OSError(msg('backend.could_not_confirm_that_the_session_processes'))
         return result == 258
     finally:
         kernel.CloseHandle(handle)
@@ -62,7 +63,7 @@ def listener_pid(port):
         if result == 122:  # ERROR_INSUFFICIENT_BUFFER; table may grow between calls
             continue
         if result:
-            raise OSError(f'无法读取本机监听端口（{result}）')
+            raise OSError(msg('backend.could_not_read_local_listening_ports_0', result))
         count = wt.DWORD.from_buffer_copy(data.raw).value
         rows = (Row*count).from_buffer_copy(data.raw[ct.sizeof(wt.DWORD):])
         for row in rows:
@@ -70,7 +71,7 @@ def listener_pid(port):
             if socket.ntohs(row.port & 0xffff) == port and address in ('127.0.0.1', '0.0.0.0'):
                 return row.pid
         return None
-    raise OSError('本机监听端口状态持续变化，请重试')
+    raise OSError(msg('backend.local_port_ownership_is_changing_try_again'))
 
 
 @contextmanager
@@ -90,7 +91,7 @@ def launch_lock(root, port):
                 break
             except OSError:
                 if time.monotonic() >= deadline:
-                    raise RuntimeError('另一个启动请求尚未完成，请稍后重试') from None
+                    raise RuntimeError(msg('backend.another_startup_request_is_in_progress_try')) from None
                 time.sleep(.05)
         try:
             yield
@@ -104,7 +105,7 @@ def open_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, open_br
                  lock=launch_lock, show=None):
     """One foreground launcher acknowledges readiness; the API remains headless."""
     if not 1024 <= port <= 65535:
-        raise ValueError('控制台端口须在 1024 到 65535 之间')
+        raise ValueError(msg('backend.the_console_port_must_be_between_1024'))
     root = Path(root).resolve()
     url = f'http://127.0.0.1:{port}'
     opener = opener or build_opener(ProxyHandler({}))
@@ -121,23 +122,23 @@ def open_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, open_br
             with opener.open(url+'/api/health', timeout=1) as response:
                 data = json.load(response)
         except (OSError, ValueError) as error:
-            raise RuntimeError(f'端口 {port} 已被占用且无法确认控制台身份；未启动第二个后端') from error
+            raise RuntimeError(msg('backend.port_0_is_in_use_and_console', port)) from error
         if not isinstance(data, dict) or (data.get('service'), data.get('project'), data.get('preview')) != (
                 'th06nc-console', project_identity(root), preview):
-            raise RuntimeError(f'端口 {port} 已被其他服务使用；未启动第二个后端')
+            raise RuntimeError(msg('backend.port_0_belongs_to_another_service_startup', port))
         with opener.open(url+'/api/state', timeout=2) as response:
             state = json.load(response)
         if (state.get('shutdown') or {}).get('state') in ('waiting', 'stopping'):
-            raise RuntimeError('服务正在关闭，请等待完成后再启动')
+            raise RuntimeError(msg('backend.the_service_is_shutting_down_wait_for'))
         return True
 
     with lock(root, port):
         if read_json(generation_file) != generation:
-            return '启动请求已取消：服务刚刚收到关闭请求。'
+            return msg('backend.startup_cancelled_because_a_shutdown_was_just')
         if not existing():
             executable = root / '.venv/Scripts/pythonw.exe'
             if not executable.is_file():
-                raise RuntimeError('训练环境尚未安装，请先运行 install.ps1')
+                raise RuntimeError(msg('backend.run_install_ps1_to_install_the_training'))
             command = [str(executable), '-m', 'th06ai', 'web', '--no-browser', '--port', str(port)]
             if preview:
                 command.append('--preview')
@@ -149,25 +150,25 @@ def open_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, open_br
             deadline = time.monotonic()+timeout
             while not existing():
                 if child.poll() is not None:
-                    raise RuntimeError(f'后端启动失败，请查看 {log_path}')
+                    raise RuntimeError(msg('backend.the_backend_failed_to_start_see_0', log_path))
                 if time.monotonic() >= deadline:
-                    raise RuntimeError(f'后端仍未就绪，请查看 {log_path}；未启动训练')
+                    raise RuntimeError(msg('backend.the_backend_is_still_unavailable_see_0', log_path))
                 time.sleep(.1)
         if open_browser:
             show(url)
-    return f'控制台已就绪：{url}；关闭时使用网页「关闭服务」或 关闭AI.cmd。'
+    return msg('backend.console_ready_at_0_use_shut_down', url)
 
 
 def shutdown_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, timeout=60,
                      opener=None, clock=time.monotonic, sleep=time.sleep,
                      listener=listener_pid, alive=process_running):
     if not 1024 <= port <= 65535:
-        raise ValueError('控制台端口须在 1024 到 65535 之间')
+        raise ValueError(msg('backend.the_console_port_must_be_between_1024'))
     url = f'http://127.0.0.1:{port}'
     opener = opener or build_opener(ProxyHandler({}))
     owner = listener(port)
     if owner is None:
-        return '后端已经关闭。'
+        return msg('backend.the_backend_has_already_shut_down')
 
     def request(path, *, token=None):
         headers = {'X-Console-Token': token, 'Origin': url} if token else {}
@@ -179,33 +180,33 @@ def shutdown_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, tim
         try:
             data = request('/api/health')
         except HTTPError as error:
-            raise RuntimeError('此端口未提供本项目控制台接口，未执行关闭') from error
+            raise RuntimeError(msg('backend.shutdown_cancelled_because_this_port_does_not')) from error
         except URLError as error:
             if isinstance(error.reason, ConnectionRefusedError):
                 return None
-            raise RuntimeError('无法连接后端确认状态，未强制结束进程') from error
+            raise RuntimeError(msg('backend.could_not_reach_the_backend_to_verify')) from error
         if not isinstance(data, dict) or (data.get('service'), data.get('project'), data.get('preview')) != (
                 'th06nc-console', project_identity(root), preview):
-            raise RuntimeError('此端口不是本项目的控制台，未执行关闭')
+            raise RuntimeError(msg('backend.shutdown_cancelled_because_this_port_belongs_to'))
         return data
 
     existing = health()
     if existing is None:
-        return '后端已经关闭。'
+        return msg('backend.the_backend_has_already_shut_down')
     if existing.get('pid', owner) != owner:
-        raise RuntimeError('端口进程与控制台身份不一致，未执行关闭')
+        raise RuntimeError(msg('backend.shutdown_cancelled_because_the_port_owner_does'))
     token = request('/api/bootstrap?state=false').get('token')
     if not isinstance(token, str) or not token:
-        raise RuntimeError('后端未提供控制令牌，未执行关闭')
+        raise RuntimeError(msg('backend.shutdown_cancelled_because_the_backend_did_not'))
     try:
         request('/api/server/shutdown', token=token)
     except HTTPError as error:
-        detail = json.load(error).get('detail', '关闭请求失败')
+        detail = json.load(error).get('detail', msg('backend.the_shutdown_request_failed'))
         raise RuntimeError(detail) from error
     deadline = clock() + timeout
     while clock() < deadline:
         if not alive(owner):
-            return 'AI 会话已结束，后端已关闭。'
+            return msg('backend.the_ai_session_has_ended_and_the')
         try:
             state = request('/api/state').get('shutdown') or {}
         except (OSError, ValueError):
@@ -214,6 +215,6 @@ def shutdown_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, tim
             sleep(.2)
             continue
         if state.get('state') == 'error':
-            raise RuntimeError(state.get('message', '关闭未完成；可按 F8 紧急停止后重试'))
+            raise RuntimeError(state.get('message', msg('backend.shutdown_is_incomplete_you_can_press_f8')))
         sleep(.2)
-    raise RuntimeError('关闭尚未完成；请在网页查看状态，紧急时按 F8。未强制终止保存。')
+    raise RuntimeError(msg('backend.shutdown_is_still_pending_check_the_console'))

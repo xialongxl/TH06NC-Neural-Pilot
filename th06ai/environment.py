@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import time
 import json
@@ -112,7 +113,7 @@ class TouhouEnv(gym.Env):
         """
         if not hasattr(self.reader,'read_control') or self.current is None:return
         if not self.reader.window.focused:
-            self._pause_sampling('游戏失去焦点，已释放按键；恢复后继续当前回合')
+            self._pause_sampling(msg('backend.the_game_lost_focus_keys_were_released'))
         probe = self.reader.read_control()
         before = self.current
         self._practice_result(probe)
@@ -122,7 +123,7 @@ class TouhouEnv(gym.Env):
             try:self._advance_dialogue()
             finally:self._sampling = False
         if probe.paused or not probe.stage_active:
-            self._pause_sampling('游戏已暂停或正在切换场景；会话已保留')
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
         plan = self.builder.last_plan
         diag = plan.diagnostics if plan is not None else {}
         age_ticks = probe.tick-before.tick
@@ -143,7 +144,7 @@ class TouhouEnv(gym.Env):
         if context_changed(before,latest) or latest.tick<before.tick:
             self._rebase_sampling(latest,before)
         if latest.paused or not latest.stage_active:
-            self._pause_sampling('游戏已暂停或正在切换场景；会话已保留')
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
         self._account_menu_gap(latest)
         self.current = latest
         self.reward_tracker.rebase(latest)
@@ -185,8 +186,8 @@ class TouhouEnv(gym.Env):
                     if control and not control.finishing and (control.run_dir / 'FINISH').exists():
                         raise FinishTraining()
                     if not getattr(getattr(self.reader, 'process', None), 'alive', True):
-                        raise GameFocusLost('游戏已退出，已释放按键')
-                    self.status(phase='等待游戏前台', message='自动切换暂未成功；点击“切回游戏”重试，或点击游戏窗口。F8 可立即停止。',
+                        raise GameFocusLost(msg('backend.the_game_exited_keys_were_released'))
+                    self.status(phase=msg('backend.waiting_for_game_focus'), message=msg('backend.automatic_focus_failed_select_focus_game_or'),
                                 user_paused=True, focus_pending=True,
                                 focus_diagnostics=getattr(self.reader.window, 'focus_diagnostics', {}))
                     if self._consume_focus_request():
@@ -212,14 +213,14 @@ class TouhouEnv(gym.Env):
             control = getattr(self, "training_control", None)
             if control is None:
                 if getattr(self, '_sampling', False):
-                    raise GameFocusLost("游戏失去焦点，已停止 AI")
+                    raise GameFocusLost(msg('backend.the_game_lost_focus_the_ai_stopped'))
                 self._acquire_focus()
                 return
             if getattr(self, "_sampling", False) and not control.busy:
-                control.request_pause("游戏失去焦点，已自动暂停；点击恢复后继续当前回合")
+                control.request_pause(msg('backend.the_game_lost_focus_and_was_paused'))
                 raise SamplingInterrupted()
             if not control.busy and control.started is not None:
-                control.request_pause("操作面板时已自动暂停；点击恢复继续")
+                control.request_pause(msg('backend.the_session_paused_while_you_used_the'))
             self._acquire_focus()
 
     def _wait(self, seconds: float):
@@ -238,7 +239,7 @@ class TouhouEnv(gym.Env):
         return focus_wait
 
     def wait_for_focus(self):
-        self.status(phase="切换游戏前台", message="正在激活游戏窗口", game_pid=self.reader.window.pid)
+        self.status(phase=msg('backend.focusing_the_game'), message=msg('backend.activating_the_game_window'), game_pid=self.reader.window.pid)
         self._acquire_focus()
 
     def tap(self, key: str, hold=.16, gap=.10):
@@ -253,7 +254,7 @@ class TouhouEnv(gym.Env):
 
     def ensure_game_started(self, restart=True):
         self.wait_for_focus()
-        self.status(phase="核对关卡状态", message="识别暂停、关卡与游戏菜单")
+        self.status(phase=msg('backend.checking_stage_state'), message=msg('backend.detecting_pause_stage_and_menu_state'))
         self.lease()
         f = self.reader.read()
         self.status(game_phase=phase_of(f), game_phase_evidence=f.phase_evidence,
@@ -266,7 +267,7 @@ class TouhouEnv(gym.Env):
         # A real pause can freeze the very first tick (including tick 0).
         # Native phase/activity identifies an entered stage, not its age.
         if not f.stage_active:
-            raise RuntimeError("未识别到已开始的关卡。请先进入关卡并暂停")
+            raise RuntimeError(msg('backend.no_active_stage_detected_enter_a_stage'))
         if setup is not None and not setup.matches(f):
             self._return_to_title()
             self._enter_from_menu()
@@ -285,7 +286,7 @@ class TouhouEnv(gym.Env):
         self.status(game_settings=observed_settings(frame),
                     requested_game_setup=setup.to_dict() if setup else None)
         if setup is not None and not setup.matches(frame):
-            self._pause_sampling('实际难度、自机或 Practice 关卡与所选设置不符；请核对游戏后恢复',
+            self._pause_sampling(msg('backend.the_current_difficulty_character_or_practice_stage'),
                                  stage_boundary=stage_boundary)
 
     def _return_to_title(self):
@@ -305,7 +306,7 @@ class TouhouEnv(gym.Env):
             if phase_of(f) in MENU_PHASES:
                 return
             self._wait(.025)
-        self._pause_sampling('尚未确认返回主菜单；请手动返回主菜单后恢复，所选设置已保留')
+        self._pause_sampling(msg('backend.could_not_confirm_a_return_to_the'))
 
     def _enter_from_menu(self):
         """Only confirmed NC screens receive keys; wait through animations."""
@@ -315,7 +316,7 @@ class TouhouEnv(gym.Env):
             self.lease()
             f=self.reader.read()
             phase=phase_of(f)
-            self.status(phase='进入游戏',game_phase=phase,game_phase_evidence=f.phase_evidence,
+            self.status(phase=msg('backend.entering_the_game'),game_phase=phase,game_phase_evidence=f.phase_evidence,
                         game_settings=observed_settings(f),
                         message=PHASE_NAMES.get(phase,phase))
             if combat_frame(f) and f.tick>0:
@@ -338,10 +339,10 @@ class TouhouEnv(gym.Env):
                     else:
                         target=0 if phase in ('title','run_mode') else None
                         if selection is None or not 0<=selection<=10:
-                            raise ValueError('菜单选项尚未识别')
+                            raise ValueError(msg('backend.menu_option_not_recognized'))
                         key=('up' if selection>target else 'down') if target is not None and selection!=target else 'z'
                 except ValueError as error:
-                    self._pause_sampling(str(error)+'；请核对游戏后恢复')
+                    self._pause_sampling(msg('backend.check_game_before_resuming', error))
                 signature=(phase,selection,key)
                 if signature!=last_command:
                     self.tap(key,hold=.08,gap=.05)
@@ -351,7 +352,7 @@ class TouhouEnv(gym.Env):
                     self._wait(.05)
             else:
                 self._wait(.025)
-        self._pause_sampling('尚未确认进入关卡；会话已保留，请手动进入关卡后恢复')
+        self._pause_sampling(msg('backend.stage_entry_could_not_be_confirmed_enter'))
 
     def _frozen(self):
         first = self.reader.read()
@@ -390,14 +391,14 @@ class TouhouEnv(gym.Env):
     def _await_manual_pause(self):
         self.keys.release()
         control=getattr(self,'training_control',None)
-        reason='尚未确认暂停菜单；已释放按键，请暂停游戏后恢复'
+        reason=msg('backend.could_not_confirm_the_pause_menu_keys')
         if control is None:raise RuntimeError(reason)
         control.request_pause(reason)
         with control.suspended_budget():
             while True:
                 self.lease()
                 f=self.reader.read()
-                self.status(phase='等待游戏暂停',message=reason,user_paused=True,
+                self.status(phase=msg('backend.waiting_for_the_game_to_pause'),message=reason,user_paused=True,
                             game_phase=phase_of(f),game_phase_evidence=f.phase_evidence)
                 if f.paused or not f.stage_active:return f
                 if (control.run_dir/'FINISH').exists():raise FinishTraining()
@@ -428,13 +429,13 @@ class TouhouEnv(gym.Env):
                 # An early held Z has no fresh edge when the menu becomes ready.
                 menu_deadline=time.monotonic()+3
                 while f.paused and not f.menu_ready:
-                    self.status(phase='等待暂停菜单就绪',game_phase=phase_of(f),message='等待菜单动画完成')
+                    self.status(phase=msg('backend.waiting_for_the_pause_menu'),game_phase=phase_of(f),message=msg('backend.waiting_for_the_menu_animation'))
                     if time.monotonic()>=menu_deadline:
-                        self._pause_sampling('暂停菜单尚未就绪；已保留会话，请确认游戏画面后恢复')
+                        self._pause_sampling(msg('backend.the_pause_menu_is_not_ready_check'))
                     self._wait(.005)
                     f=self.reader.read()
                 if not f.stage_active:
-                    self._pause_sampling('游戏已离开当前关卡；请进入关卡后恢复')
+                    self._pause_sampling(msg('backend.the_game_left_the_current_stage_enter'))
             if f.paused and f.menu_selection is not None:
                 # Selection is observable; never confirm "return to title".
                 for _ in range(6):
@@ -442,9 +443,9 @@ class TouhouEnv(gym.Env):
                     self.tap('up',hold=.06,gap=.05)
                     f=self.reader.read()
                 if f.menu_selection!=0:
-                    self._pause_sampling('未确认“解除暂停”选项；请选中后恢复')
+                    self._pause_sampling(msg('backend.select_resume_in_the_pause_menu_before'))
             self._ensure_transaction_focus()
-            self.status(phase="等待恢复动画", message="等待实际游戏帧重新推进")
+            self.status(phase=msg('backend.waiting_for_the_resume_animation'), message=msg('backend.waiting_for_game_frames_to_advance'))
             deadline = time.monotonic() + 3
             self.keys.set({'z'})
             try:
@@ -458,7 +459,7 @@ class TouhouEnv(gym.Env):
                                                 'native_tick':f.tick,'confirmed':True})
                         break
                     if time.monotonic() >= deadline:
-                        raise RuntimeError("未能确认游戏恢复，请停在第一关的暂停菜单并选中解除暂停")
+                        raise RuntimeError(msg('backend.could_not_verify_that_the_game_resumed'))
                     deadline += self._wait(.002) or 0.
                     if 'z' not in getattr(self.keys, 'held', {'z'}):
                         self.keys.set({'z'})
@@ -507,7 +508,7 @@ class TouhouEnv(gym.Env):
         control = getattr(self, "training_control", None)
         was_busy = control.busy if control else False
         if control and not was_busy and not self.reader.window.focused:
-            control.request_pause("游戏失去焦点，已自动暂停；点击恢复继续当前回合")
+            control.request_pause(msg('backend.the_game_lost_focus_and_was_paused_2'))
         if control:
             control.busy = True
         try:
@@ -584,7 +585,7 @@ class TouhouEnv(gym.Env):
                 return
             self._wait(.05)
         latest = self.reader.read()
-        self._pause_sampling(f"尚未确认重开（原帧 {old.tick}，当前帧 {latest.tick}）；会话已保留，恢复后重试")
+        self._pause_sampling(msg('backend.restart_not_confirmed_previous_frame_0_current', old.tick, latest.tick))
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -607,7 +608,7 @@ class TouhouEnv(gym.Env):
         self.input_timing = InputTiming()
         self.current = self.reader.read()
         if self.current.resources is None:
-            raise RuntimeError("未读取到真实游戏资源状态，不能启动资源奖励训练")
+            raise RuntimeError(msg('backend.verified_in_game_resources_are_required_for'))
         self.reward_tracker.reset(self.current)
         self.last_action = None
         self.start_tick = self.current.tick
@@ -623,7 +624,7 @@ class TouhouEnv(gym.Env):
         self.decision_context = {}
         self.freshness_warning = None
         self.episode_count += 1
-        self.status(phase="采样训练", episodes=self.episode_count, paused=False)
+        self.status(phase=msg('backend.collecting_training_samples'), episodes=self.episode_count, paused=False)
         return self.builder.build(self.current), {"native_tick": self.current.tick,
                 'stage_id': self.current.stage_id, 'stage_label': stage_label(self.current.stage_id),
                 'game_settings': observed_settings(self.current)}
@@ -640,8 +641,8 @@ class TouhouEnv(gym.Env):
                 'episode':{'r':self.episode_return,'l':self.episode_steps,'t':self.episode_ticks/60},
                 'episode_diagnostics':self.reward_tracker.diagnostics()}
         self.current = self._full_frame(frame)
-        self.status(phase='Practice 本局结束', game_phase='result', game_settings=observed_settings(self.current),
-                    message='已确认结算画面，下一局重新进入所选关卡')
+        self.status(phase=msg('backend.practice_round_complete'), game_phase='result', game_settings=observed_settings(self.current),
+                    message=msg('backend.results_screen_confirmed_the_next_round_will'))
         if self.diagnostics is not None:
             self.diagnostics.event(event='practice_result', **info)
         # A menu observation is not a fabricated zero-reward combat action.
@@ -656,7 +657,7 @@ class TouhouEnv(gym.Env):
             if control is None:
                 raise
             self.keys.release()
-            control.request_pause("游戏失去焦点，已自动暂停；点击恢复继续当前回合")
+            control.request_pause(msg('backend.the_game_lost_focus_and_was_paused_2'))
             raise SamplingInterrupted() from None
         finally:
             self._sampling = False
@@ -707,7 +708,7 @@ class TouhouEnv(gym.Env):
         self.reward_tracker.rebase(frame)
         self.last_action = None
         self._observe_control(frame, None)
-        self.status(phase="重新对齐游戏观测", message="关卡切换，已隔开训练片段并重新观测" if stage_boundary else "游戏计时重置，已对齐当前观测并继续",
+        self.status(phase=msg('backend.realigning_the_game_observation'), message=msg('backend.the_stage_changed_training_segments_were_separated') if stage_boundary else msg('backend.the_game_timer_reset_sampling_resumed_with'),
                     game_settings=observed_settings(frame),
                     sampling_timing={"event": "stage_context_change" if stage_boundary else "clock_reset", "before_tick": before.tick,
                                      "after_tick": frame.tick, "delta": frame.tick-before.tick})
@@ -730,7 +731,7 @@ class TouhouEnv(gym.Env):
                 if phase not in ('dialogue','script_wait'):
                     break
                 self.status(phase=PHASE_NAMES[phase],game_phase=phase,game_phase_evidence=f.phase_evidence,
-                            message='对话期间停止移动；确认对话后重新观测战场',paused=False)
+                            message=msg('backend.movement_is_suspended_during_dialogue_the_game'),paused=False)
                 if phase=='dialogue':
                     # Never leave arrows/Shift/X held across a dialogue.
                     self.keys.set({'z'})
@@ -760,7 +761,7 @@ class TouhouEnv(gym.Env):
         if phase_of(before) in ('dialogue','script_wait'):
             self._advance_dialogue()
         if before.paused or not before.stage_active:
-            self._pause_sampling("游戏已暂停或正在切换场景；恢复游戏后可继续本次训练")
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes_2'))
         setup = getattr(self, 'game_setup', None)
         if setup is not None and not setup.matches(before):
             self._verify_setup(before)
@@ -796,7 +797,7 @@ class TouhouEnv(gym.Env):
         if phase_of(dispatched) in ('dialogue','script_wait'):
             self._advance_dialogue()
         if dispatched.paused or not dispatched.stage_active:
-            self._pause_sampling("游戏已暂停或正在切换场景；恢复游戏后可继续本次训练")
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes_2'))
         if dispatched.tick < before.tick or context_changed(before, dispatched):
             self._rebase_sampling(self._full_frame(dispatched), before)
         deadline = time.monotonic() + .4
@@ -812,13 +813,13 @@ class TouhouEnv(gym.Env):
             if phase_of(f) in ('dialogue','script_wait'):
                 self._advance_dialogue()
             if f.paused or not f.stage_active:
-                self._pause_sampling("游戏已暂停或正在切换场景；恢复游戏后可继续本次训练")
+                self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes_2'))
             if f.tick < dispatched.tick or context_changed(dispatched, f):
                 self._rebase_sampling(self._full_frame(f), before)
             if f.tick >= dispatched.tick + 2 or f.state == 2:
                 break
             if time.monotonic() > deadline:
-                self._pause_sampling("游戏计时暂未推进；恢复游戏后可继续本次训练")
+                self._pause_sampling(msg('backend.the_game_timer_has_not_advanced_resume'))
         if not isinstance(f, Frame):
             f = self._full_frame(f)
             timing.observe(f)
@@ -826,7 +827,7 @@ class TouhouEnv(gym.Env):
         if phase_of(f) in ('dialogue','script_wait'):
             self._advance_dialogue()
         if f.paused or not f.stage_active:
-            self._pause_sampling('游戏已暂停或正在切换场景；会话已保留')
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
         if f.tick < before.tick or context_changed(before,f):
             self._rebase_sampling(f,before)
         delta = f.tick - before.tick
@@ -937,7 +938,7 @@ class TouhouEnv(gym.Env):
         diagnostics = getattr(self,'diagnostics',None)
         if diagnostics is not None:
             diagnostics.record(info,getattr(self,'decision_context',{}).get('training_step') or self.total_steps)
-        self.status(phase="神经网络采样", message="模型自主选择方向与低速",
+        self.status(phase=msg('backend.collecting_policy_samples'), message=msg('backend.the_policy_selects_direction_and_focus_speed'),
                     game_settings=observed_settings(f),
                     stage_id=f.stage_id, stage_label=stage_label(f.stage_id),
                     stage_seconds=round(self.stage_ticks/60, 2), stage_changes=getattr(self,'stage_changes',0),

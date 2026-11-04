@@ -1,5 +1,6 @@
 """UI-independent session controls. Reading state never starts game/GPU work."""
 from __future__ import annotations
+from .i18n import msg
 
 from dataclasses import asdict, replace
 import hashlib
@@ -33,17 +34,17 @@ class ConsoleError(Exception):
 
 def build_command(mode, minutes, model=None, goal=None, game_setup=None):
     if mode not in MODES:
-        raise ValueError("不支持的操作")
+        raise ValueError(msg('backend.unsupported_operation'))
     if not math.isfinite(float(minutes)) or not 0 < float(minutes) <= 60:
-        raise ValueError("每次运行时长须在 0 到 60 分钟之间")
+        raise ValueError(msg('backend.the_session_duration_must_be_greater_than_2'))
     if mode in {"resume", "play", "evaluate"} and model is None:
-        raise ValueError("请先选择模型")
+        raise ValueError(msg('backend.select_a_model_first'))
     command = [sys.executable, "-m", "th06ai", "train" if mode == "resume" else mode,
                "--minutes", str(minutes)]
     if mode in {"resume", "play", "evaluate"}:
         command += ["--model", str(model)]
     if goal is not None:
-        if goal not in ('survival','nmnb'):raise ValueError('不支持的训练目标')
+        if goal not in ('survival','nmnb'):raise ValueError(msg('backend.unsupported_training_goal'))
         command += ['--goal',goal]
     setup = parse_setup(game_setup)
     if setup is not None:
@@ -167,8 +168,8 @@ class ConsoleService:
         catalog = self.refresh_models()
         if catalog is self._model_catalog_ref:
             return self._model_view
-        rows = [{"id": self.model_id(c.path), "name": "最近保存" if c.path == self.root / "models/latest.zip"
-                 else f"检查点 · {c.metadata.get('steps', 0):,} 步",
+        rows = [{"id": self.model_id(c.path), "name": msg('backend.latest_checkpoint') if c.path == self.root / "models/latest.zip"
+                 else msg('backend.checkpoint_0_steps', f"{c.metadata.get('steps', 0):,}"),
                  "path": str(c.path.relative_to(self.root)), "steps": c.metadata.get("steps", 0),
                  "updates": c.metadata.get("gradient_updates", 0), "saved_at": c.metadata.get("time"),
                  "usable": c.usable, "compatibility": c.compatibility,
@@ -215,12 +216,12 @@ class ConsoleService:
         with self._lock:
             entry = next((c for c in catalog if self.model_id(c.path) == model_id), None)
             if entry is None:
-                raise ConsoleError("模型不存在，请刷新模型库", 404)
+                raise ConsoleError(msg('backend.model_not_found_refresh_the_model_library'), 404)
             if not entry.usable:
                 raise ConsoleError(entry.compatibility)
             checked = inspect_checkpoint(entry.path)
             if not checked.path.is_relative_to((self.root / 'models').resolve()) or not checked.usable:
-                raise ConsoleError('模型路径或元数据已变化，请刷新模型库')
+                raise ConsoleError(msg('backend.the_model_path_or_metadata_changed_refresh'))
             self.selected_path = entry.path
             if not self.preview:
                 atomic_json(self.root / "ui_state.json", {"selected_model": str(entry.path)})
@@ -292,12 +293,12 @@ class ConsoleService:
                 pending = self._read_json(self.pending_run / "status.json")
                 return self.pending_run, pending or {"state": "starting" if code is None else "stopped",
                     "mode": self.pending_mode,
-                    "reason": "正在启动独立保护" if code is None else f"启动进程退出（代码 {code}），请查看启动记录"}
+                    "reason": msg('backend.starting_the_independent_watchdog') if code is None else msg('backend.the_launcher_exited_with_code_0_check', code)}
         return path, status
 
     def _writable(self):
         if self.preview:
-            raise ConsoleError("只读预览不会启动训练或发送游戏控制", 403)
+            raise ConsoleError(msg('backend.read_only_preview_cannot_start_training_or'), 403)
 
     def _activate_game(self):
         try:
@@ -307,7 +308,7 @@ class ConsoleService:
                 from .focus import activate_game
                 result = activate_game(self.config.game_path)
         except Exception as error:
-            result = {'activated': False, 'message': f'窗口激活未完成：{error}'}
+            result = {'activated': False, 'message': msg('backend.could_not_focus_the_game_window_0', error)}
         self.last_focus = result
         return result
 
@@ -329,10 +330,10 @@ class ConsoleService:
         from .stage import stage_label
         with self._lock:
             if self.preview:
-                raise ConsoleError('只读预览不连接实际游戏',403)
+                raise ConsoleError(msg('backend.read_only_preview_does_not_connect_to'),403)
             _,status=self._session()
             if session_active(status) or self.process and self.process.poll() is None:
-                raise ConsoleError('会话运行中，请查看工作进程的实时状态',409)
+                raise ConsoleError(msg('backend.a_session_is_running_check_the_worker'),409)
             reader=None
             try:
                 from .native import GameReader
@@ -340,14 +341,14 @@ class ConsoleService:
                 if self.config.capture_backend != 'auto':
                     reader.process.configure_reads(self.config.capture_backend)
                 f=reader.read()
-                self.last_game_probe={'available':True,'phase':f.phase,'label':PHASE_NAMES.get(f.phase,'等待识别'),
+                self.last_game_probe={'available':True,'phase':f.phase,'label':PHASE_NAMES.get(f.phase,msg('backend.waiting_for_detection')),
                     'game_settings':observed_settings(f),
                     'stage_id':getattr(f,'stage_id',None),'stage_label':stage_label(getattr(f,'stage_id',None)),
                     'paused':f.paused,'tick':f.tick,'menu_selection':f.menu_selection,'menu_ready':f.menu_ready,
                     'evidence':f.phase_evidence,'player_shots':f.player_shots,'visible_lasers':len(f.lasers),
-                    'observed_at':datetime.now().astimezone().isoformat(),'message':'已完成只读检测'}
+                    'observed_at':datetime.now().astimezone().isoformat(),'message':msg('backend.read_only_probe_complete')}
             except (OSError,RuntimeError,ValueError) as error:
-                self.last_game_probe={'available':False,'label':'暂未连接游戏','message':str(error),
+                self.last_game_probe={'available':False,'label':msg('backend.game_not_connected'),'message':str(error),
                     'observed_at':datetime.now().astimezone().isoformat()}
             finally:
                 if reader is not None:reader.close()
@@ -359,48 +360,48 @@ class ConsoleService:
             self._writable()
             _,status=self._session()
             if session_active(status) or self.process and self.process.poll() is None:
-                raise ConsoleError('请结束当前会话后切换计算后端',409)
+                raise ConsoleError(msg('backend.end_the_current_session_before_switching_compute'),409)
             available=backend_status()
             if 'rust' in (collision,input_backend) and not available['available']:
-                raise ConsoleError('Rust 扩展尚未构建，当前可使用 Python',422)
+                raise ConsoleError(msg('backend.the_rust_extension_has_not_been_built'),422)
             if collision not in ('python','rust','auto') or input_backend not in ('python','rust','auto'):
-                raise ConsoleError('未知计算后端',422)
+                raise ConsoleError(msg('backend.unknown_compute_backend'),422)
             config=replace(self.config,input_backend=input_backend,
                            planning=replace(self.config.planning,collision_backend=collision))
             atomic_json(self.root/'config.json',asdict(config))
             self.config=config
             self._native_backend=available
-            return {'message':'计算后端已保存，下次会话生效；未启动训练'}
+            return {'message':msg('backend.backend_settings_saved_for_the_next_session')}
 
     def start(self, mode, minutes, model_id=None, goal=None, game_setup=None):
         catalog = self.refresh_models(force=True) if mode in {'resume', 'play', 'evaluate'} else []
         with self._lock:
             self._writable()
             if self._closing:
-                raise ConsoleError("正在关闭服务，请等待退出后重新启动")
+                raise ConsoleError(msg('backend.the_service_is_shutting_down_wait_for_2'))
             path, status = current_session(self.root)
             if session_active(status) or (self.process and self.process.poll() is None):
-                raise ConsoleError("已有会话运行中，请暂停/恢复，或先结束当前会话")
+                raise ConsoleError(msg('backend.a_session_is_already_running_pause_resume'))
             model = None
             if mode in {"resume", "play", "evaluate"}:
                 entry = next((c for c in catalog
                               if self.model_id(c.path) == model_id), None)
                 if entry is None:
-                    raise ConsoleError("请先选择一个可用模型", 422)
+                    raise ConsoleError(msg('backend.select_a_compatible_model_first'), 422)
                 checked = inspect_checkpoint(entry.path, verify=True)
                 if not checked.path.is_relative_to((self.root / 'models').resolve()):
-                    raise ConsoleError('模型路径已超出项目目录')
+                    raise ConsoleError(msg('backend.the_model_path_is_outside_the_project'))
                 if not checked.usable:
                     raise ConsoleError(checked.compatibility)
                 model = entry.path
             if mode in {"resume", "train", "play", "evaluate"} and not self.readiness()["ready"]:
-                raise ConsoleError("训练环境尚未就绪，请在保护与诊断中查看检查结果")
+                raise ConsoleError(msg('backend.complete_the_checks_on_the_safety_diagnostics'))
             try:
                 setup = parse_setup(game_setup)
             except ValueError as error:
                 raise ConsoleError(str(error), 422) from error
             if setup is not None and mode not in ('resume','train','play','evaluate'):
-                raise ConsoleError('仅训练、试玩与评估接受游戏设置',422)
+                raise ConsoleError(msg('backend.game_settings_apply_to_training_playback_and'),422)
             command = build_command(mode, minutes, model, goal, setup)
             run_path = new_run(self.root, "train" if mode == "resume" else mode)
             command += ["--run-dir", str(run_path)]
@@ -412,13 +413,13 @@ class ConsoleService:
                         env=dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1"), stdout=stream,
                         stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             except OSError as error:
-                raise ConsoleError(f"启动失败：{error}", 500) from error
+                raise ConsoleError(msg('backend.launch_failed_0', error), 500) from error
             self.pending_run, self.pending_mode = run_path, "train" if mode == "resume" else mode
             # Web's foreground process is the browser, not this API. Activate
             # on the explicit start request now, rather than waiting through
             # CUDA/model loading before the worker first asks for focus.
             focus = self._activate_game() if mode in ('resume', 'train', 'play', 'evaluate', 'calibrate') else None
-            return {"message": "已提交，独立保护预检通过后执行", "mode": mode, 'foreground': focus}
+            return {"message": msg('backend.request_accepted_the_session_will_start_after'), "mode": mode, 'foreground': focus}
 
     def control(self, action, *, paused=None):
         with self._lock:
@@ -427,24 +428,24 @@ class ConsoleService:
             # STOP remains available for a known session even if UI telemetry
             # is stale; the independent guard and F8 do not rely on this API.
             if not path or (not session_active(status) and not (action == "stop" and status.get("state") in ACTIVE_STATES)):
-                raise ConsoleError("当前没有可控制的运行会话")
+                raise ConsoleError(msg('backend.there_is_no_active_session_to_control'))
             if action == "stop":
                 (path / "STOP").touch()
-                return {"message": "已请求紧急停止；最近的已保存检查点会保留"}
+                return {"message": msg('backend.emergency_stop_requested_the_last_saved_checkpoint')}
             if action == 'focus':
                 (path / 'FOCUS').touch()
-                return {'message': '已请求切回游戏；未改变训练或暂停状态'}
+                return {'message': msg('backend.game_focus_requested_training_and_pause_state')}
             if action == "pause":
                 if status.get('mode') not in ('train', 'play', 'evaluate'):
-                    raise ConsoleError('当前会话不支持游戏暂停')
+                    raise ConsoleError(msg('backend.this_session_does_not_support_pausing_the'))
                 set_paused(path, bool(paused))
-                return {"message": "正在暂停，保留本次进度" if paused else "正在恢复当前回合"}
+                return {"message": msg('backend.pausing_with_progress_retained') if paused else msg('backend.resuming_the_current_round')}
             if action == "finish":
                 if status.get('mode') != 'train':
-                    raise ConsoleError('当前操作不是训练会话')
+                    raise ConsoleError(msg('backend.the_current_session_is_not_a_training'))
                 (path / "FINISH").touch()
-                return {"message": "正在等待安全边界并保存模型"}
-            raise ConsoleError("未知控制操作", 422)
+                return {"message": msg('backend.waiting_for_a_safe_point_to_save')}
+            raise ConsoleError(msg('backend.unknown_control_action'), 422)
 
     def request_shutdown(self, *, port=DEFAULT_CONSOLE_PORT):
         with self._lock:
@@ -459,7 +460,7 @@ class ConsoleService:
                 (path / marker).touch()
                 self._shutdown_run = path
             self._closing = True
-            self.shutdown = {"state": "waiting", "message": "正在结束会话并关闭服务；训练会先保存，显卡保护继续运行"}
+            self.shutdown = {"state": "waiting", "message": msg('backend.finishing_the_session_and_shutting_down_training')}
             return dict(self.shutdown)
 
     def shutdown_ready(self):

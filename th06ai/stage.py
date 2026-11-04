@@ -1,4 +1,5 @@
 """Observed stage identity, independent of Boss visibility or elapsed time."""
+from .i18n import msg
 import numpy as np
 
 STAGE_FEATURES = 8  # seven one-hot stages, then identity-known bit
@@ -11,7 +12,7 @@ def decode_stage(raw):
 
 def stage_label(stage_id):
     stage_id = decode_stage(stage_id)
-    return 'EX' if stage_id == 7 else f'Stage {stage_id}' if stage_id is not None else '关卡待识别'
+    return 'EX' if stage_id == 7 else f'Stage {stage_id}' if stage_id is not None else msg('backend.stage_unknown')
 
 
 def stage_vector(stage_id):

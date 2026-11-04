@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import argparse
 import json
@@ -28,7 +29,7 @@ class Heartbeat:
                  safety: SafetyConfig | None = None):
         self.run_dir = run_dir
         self.safety = safety or SafetyConfig()
-        self.data = {"phase": "加载训练模块", "steps": 0, "episodes": 0, "pid": os.getpid()}
+        self.data = {"phase": msg('backend.loading_training_modules'), "steps": 0, "episodes": 0, "pid": os.getpid()}
         self.lock = threading.Lock()
         self.error = None
         self.done = threading.Event()
@@ -58,9 +59,9 @@ class Heartbeat:
     def lease(self):
         now = time.monotonic()
         if self.error:
-            raise RuntimeError(f"AI 心跳写入失败：{self.error}")
+            raise RuntimeError(msg('backend.could_not_write_the_ai_heartbeat_0', self.error))
         if (self.run_dir / "STOP").exists():
-            raise RuntimeError("用户要求停止")
+            raise RuntimeError(msg('backend.stop_requested_by_the_user'))
         if 0 <= now - self.last_lease_check < .025:
             return
         read_state = "valid"
@@ -86,9 +87,9 @@ class Heartbeat:
                        "supervisor_pid": permit.get("supervisor_pid") if permit else None}
         self.update(lease_diagnostics={**diagnostics, "error": reason})
         if reason:
-            raise RuntimeError("独立显卡保护授权已失效，立即停止 AI（" + {
-                "missing": "未取得完整授权", "time_invalid": "授权时间异常",
-                "expired": "监控数据超过配置时限", "identity_changed": "保护进程或显卡身份变化"}[reason] + "）")
+            raise RuntimeError(msg('backend.watchdog_authorization_failed', {
+                "missing": msg('backend.complete_authorization_was_not_received'), "time_invalid": msg('backend.invalid_authorization_timestamp'),
+                "expired": msg('backend.telemetry_exceeded_the_configured_timeout'), "identity_changed": msg('backend.watchdog_process_or_gpu_identity_changed')}[reason]))
         self.last_valid_permit = permit
         self.lease_identity = identity
         self.last_lease_check = now
@@ -116,7 +117,7 @@ def measure_movement(env, focused=False):
             env.lease()
             current = env.reader.read()
             if current.paused or current.state == 2 or not current.stage_active:
-                raise RuntimeError('移动校准需要正常游戏画面')
+                raise RuntimeError(msg('backend.movement_calibration_requires_an_active_stage'))
             frames.append({'tick':current.tick, 'x':current.x, 'y':current.y,
                            'input_bits':current.input_bits})
             if previous is not None:
@@ -136,17 +137,17 @@ def calibrate(env, run_dir: Path, heartbeat: Heartbeat):
     import numpy as np
     from .native import SHA256
     env.ensure_game_started()
-    heartbeat.update(phase="校准真实游戏状态", message="请保持游戏窗口在前台，正在核对坐标和按键")
+    heartbeat.update(phase=msg('backend.calibrating_live_game_state'), message=msg('backend.keep_the_game_focused_while_coordinates_and'))
     first = env.reader.read()
     if first.paused or first.state == 2:
-        raise RuntimeError("校准需要正常游戏状态，请重新进入第一关")
+        raise RuntimeError(msg('backend.calibration_requires_a_playable_stage_re_enter'))
     # Verify that coordinate changes follow real key input, including focus.
     fast, fast_probe = measure_movement(env)
     slow, slow_probe = measure_movement(env, focused=True)
     probes = [fast_probe, slow_probe]
     atomic_json(run_dir / "movement_probes.json", {"probes": probes})
     if not .1 < slow < fast < 20:
-        raise RuntimeError(f"按键/坐标未通过校验：每帧正常位移 {fast:.2f}，低速位移 {slow:.2f}")
+        raise RuntimeError(msg('backend.movement_validation_failed_normal_displacement_per_frame', f'{fast:.2f}', f'{slow:.2f}'))
     seen = 0
     samples = []
     deadline = time.monotonic() + 18
@@ -156,7 +157,7 @@ def calibrate(env, run_dir: Path, heartbeat: Heartbeat):
         seen = max(seen, len(f.bullets))
         samples.append({"tick": f.tick, "x": f.x, "y": f.y, "state": f.state,
                         "bullets": f.bullets.tolist()})
-        heartbeat.update(bullets=len(f.bullets), message=f"已观察到 {seen} 枚可见子弹，正在校准")
+        heartbeat.update(bullets=len(f.bullets), message=msg('backend.detected_0_visible_bullets_calibrating', seen))
         if seen >= 3 and len(samples) >= 30:
             break
         if f.state == 2:
@@ -165,12 +166,12 @@ def calibrate(env, run_dir: Path, heartbeat: Heartbeat):
     atomic_json(run_dir / "calibration_samples.json", {"samples": samples})
     env.pause()
     if seen < 3:
-        raise RuntimeError("没有采到足够的可见弹幕，校准未通过；未启用训练")
+        raise RuntimeError(msg('backend.calibration_failed_because_too_few_bullets_were'))
     atomic_json(run_dir / "calibration_progress.json", {
         "position_control_verified": True, "focus_speed_verified": True,
         "visible_bullets": seen, "fast_px_per_tick": fast, "slow_px_per_tick": slow,
         "game_sha256": SHA256, "restart_verified": False})
-    heartbeat.update(phase="校准 R 快速重开", message="正在验证计时复位与实际帧推进")
+    heartbeat.update(phase=msg('backend.calibrating_the_r_restart_shortcut'), message=msg('backend.verifying_the_timer_reset_and_subsequent_frame'))
     env._restart()
     env.pause()
     report = {"game_sha256": SHA256, "time": timestamp(), "position_control_verified": True,
@@ -180,7 +181,7 @@ def calibrate(env, run_dir: Path, heartbeat: Heartbeat):
               "movement_measurement_version": 2}
     atomic_json(ROOT / "native_calibration.json", report)
     atomic_json(run_dir / "calibration.json", report)
-    heartbeat.update(phase="校准通过", message="状态与按键已验证，可以启用神经网络训练")
+    heartbeat.update(phase=msg('backend.calibration_passed'), message=msg('backend.game_state_and_key_input_verified_training'))
 
 
 def main():
@@ -197,7 +198,7 @@ def main():
     args = parser.parse_args()
     run_dir = args.run_dir.resolve()
     if not run_dir.is_relative_to((ROOT / "runs").resolve()):
-        raise RuntimeError("运行目录必须位于本项目 runs 中")
+        raise RuntimeError(msg('backend.the_run_directory_must_be_inside_this'))
     config = load_config()
     config = replace(config,goal=args.goal or ('nmnb' if args.mode=='evaluate' else config.goal))
     if args.game_setup is not None:
@@ -211,7 +212,7 @@ def main():
         deadline = time.monotonic() + 3
         while not (initial_permit := lease.read()):
             if time.monotonic() > deadline:
-                raise RuntimeError("未获得独立看门狗授权")
+                raise RuntimeError(msg('backend.the_independent_watchdog_did_not_grant_authorization'))
             time.sleep(.02)
         heartbeat.last_valid_permit = initial_permit
         heartbeat.lease()
@@ -222,7 +223,7 @@ def main():
         import torch
         torch.set_num_threads(1)
         if config.device=='cuda':
-            if not torch.cuda.is_available():raise RuntimeError('未启用 CUDA；不会静默切换训练设备')
+            if not torch.cuda.is_available():raise RuntimeError(msg('backend.cuda_is_disabled_the_training_device_was'))
             torch.cuda.set_per_process_memory_fraction(.15)
         if args.mode=='profile':
             if args.profile_kind=='latency':
@@ -236,10 +237,10 @@ def main():
         if args.mode != "calibrate":
             calibration = read_json(ROOT / "native_calibration.json")
             if calibration.get("game_sha256") != SHA256 or calibration.get("format") != 1:
-                raise RuntimeError("必须先完成当前游戏版本的实机校准")
+                raise RuntimeError(msg('backend.calibrate_the_current_game_build_before_continuing'))
             resources = read_json(ROOT / "native_resources_calibration.json")
             if resources.get("game_sha256") != SHA256 or not resources.get("operator_confirmed"):
-                raise RuntimeError("需要先核对游戏显示的 P/B/残机数值，不能用未经确认的资源奖励训练")
+                raise RuntimeError(msg('backend.verify_the_displayed_power_bombs_and_lives'))
         from .environment import TouhouEnv
         env = TouhouEnv(config, heartbeat.lease, heartbeat.update)
         env.run_dir = run_dir
@@ -262,7 +263,7 @@ def main():
                 model.decision_runner.warmup(lease=heartbeat.lease)
                 if args.mode == "evaluate":
                     report = evaluate(model, env, run_dir, heartbeat.update, heartbeat.lease)
-                    heartbeat.update(phase="评估完成", message=f"平均生存 {report['mean_survival_seconds']:.1f} 秒")
+                    heartbeat.update(phase=msg('backend.evaluation_complete'), message=msg('backend.mean_survival_0_seconds', f"{report['mean_survival_seconds']:.1f}"))
                 else:
                     obs, _ = env.reset(options={"restart": False})
                     env.training_control.start()
@@ -284,16 +285,16 @@ def main():
                             env.training_control.gate(env)
                             obs = env.builder.build(env.current)
                             continue
-                        heartbeat.update(phase="神经网络实机试玩")
+                        heartbeat.update(phase=msg('backend.live_policy_playback'))
                         if died or timeout:
                             obs, _ = env.reset()
-        heartbeat.update(phase="完成", message="运行完成，游戏按键已释放")
+        heartbeat.update(phase=msg('backend.complete_2'), message=msg('backend.run_complete_game_keys_released'))
         return 0
     except FinishTraining:
-        heartbeat.update(phase="完成", message="会话已结束，正在释放游戏按键")
+        heartbeat.update(phase=msg('backend.complete_2'), message=msg('backend.session_ended_releasing_game_keys'))
         return 0
     except BaseException as exc:
-        heartbeat.update(error=str(exc), phase="停止", message=str(exc),
+        heartbeat.update(error=str(exc), phase=msg('backend.stopped_2'), message=str(exc),
                          state_reader=getattr(getattr(env, "reader", None), "snapshot_diagnostics", {}))
         traceback.print_exc()
         try:

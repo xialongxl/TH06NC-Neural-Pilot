@@ -1,12 +1,13 @@
 """Bounded CUDA forward/backward checks; no game input or weight updates."""
 from __future__ import annotations
+from .i18n import msg
 
 from .config import ROOT
 from .files import atomic_json, timestamp
 
 
 def check_cuda(lease, status):
-    status(phase="GPU 环境自检", message="CUDA 前向/反向自检；不操作游戏、不更新模型")
+    status(phase=msg('backend.gpu_environment_check'), message=msg('backend.checking_cuda_forward_and_backward_passes_without'))
     import time
     import torch
     from .policy import BulletEncoder
@@ -14,7 +15,7 @@ def check_cuda(lease, status):
     lease()
     torch.set_num_threads(1)
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA 不可用，禁止将 CPU 运行标记成 GPU 训练")
+        raise RuntimeError(msg('backend.cuda_is_unavailable_cpu_execution_cannot_be'))
     torch.cuda.set_per_process_memory_fraction(.15, 0)
     space = make_observation_space()
     encoder = BulletEncoder(space).to("cuda:0")
@@ -24,7 +25,7 @@ def check_cuda(lease, status):
     torch.cuda.synchronize()
     lease()
     if result.shape != (1, 128) or not bool(torch.isfinite(result).all()):
-        raise RuntimeError("CUDA 神经网络前向计算未通过")
+        raise RuntimeError(msg('backend.the_cuda_forward_pass_failed'))
     # Match the real PPO minibatch size at maximum input capacity. A backward
     # pass tests activation memory and gradients, but there is no optimizer
     # step and neither a model checkpoint nor gameplay samples are produced.
@@ -39,7 +40,7 @@ def check_cuda(lease, status):
     torch.cuda.synchronize()
     forward_ms = (time.perf_counter()-started)*1000
     if dense.shape != (batch_size, 128) or not bool(torch.isfinite(dense).all()):
-        raise RuntimeError("满容量 CUDA 批次前向计算未通过")
+        raise RuntimeError(msg('backend.the_full_capacity_cuda_batch_failed_its'))
     lease()
     started = time.perf_counter()
     dense.square().mean().backward()
@@ -47,7 +48,7 @@ def check_cuda(lease, status):
     backward_ms = (time.perf_counter()-started)*1000
     lease()
     if not all(parameter.grad is not None and bool(torch.isfinite(parameter.grad).all()) for parameter in encoder.parameters()):
-        raise RuntimeError("满容量 CUDA 批次反向计算未通过")
+        raise RuntimeError(msg('backend.the_full_capacity_cuda_batch_failed_its_2'))
     from gymnasium import spaces
     from .policy import ResourcePolicy
     from .planner_spec import PLANNER_VERSION
@@ -63,7 +64,7 @@ def check_cuda(lease, status):
         distribution = policy.get_distribution(observation)
         if (not bool(torch.allclose(log_probs, compared_logs)) or not bool(torch.allclose(values, compared_values))
                 or bool((distribution.distribution.probs[:, [4, 22]] > 0).any())):
-            raise RuntimeError("CUDA 规划动作概率与执行/回算不一致")
+            raise RuntimeError(msg('backend.cuda_action_probabilities_disagree_with_execution_or'))
     lease()
     info = {"time": timestamp(), "torch": torch.__version__, "cuda_runtime": torch.version.cuda,
             "device": torch.cuda.get_device_name(0), "forward_check": True,
@@ -74,5 +75,5 @@ def check_cuda(lease, status):
             "gameplay_trained": False, "allocated_bytes": torch.cuda.max_memory_allocated(0), "format": 1,
             "observation_version": OBSERVATION_VERSION}
     atomic_json(ROOT / "training_backend.json", info)
-    status(phase="GPU 自检通过", device=info["device"], message="满容量 CUDA 前向/反向通过；未操作游戏、未更新模型")
+    status(phase=msg('backend.gpu_check_passed'), device=info["device"], message=msg('backend.full_capacity_cuda_forward_and_backward_passes'))
     return info

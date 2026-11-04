@@ -1,5 +1,6 @@
 """Shared, bounded UI snapshots and incremental SSE. No training controls."""
 from __future__ import annotations
+from .i18n import msg
 
 import asyncio
 from contextlib import suppress
@@ -176,7 +177,7 @@ class SnapshotBroker:
         try:
             while not self._closed and not await request.is_disconnected():
                 if self._error is not None:
-                    raise RuntimeError("控制台状态读取失败") from self._error
+                    raise RuntimeError(msg('backend.could_not_read_the_console_state')) from self._error
                 published = self.latest
                 now = time.perf_counter()
                 if published is None:
@@ -213,7 +214,7 @@ class SnapshotBroker:
                         except asyncio.TimeoutError:
                             pass
             if self._shutdown_complete:
-                yield 'event: shutdown\ndata: {"message":"后端已关闭"}\n\n'
+                yield "event: shutdown\n" + encode({"message": msg("console.backend_shut_down")})
         finally:
             self.clients.pop(identity, None)
             self._wake.set()

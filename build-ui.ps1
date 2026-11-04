@@ -6,4 +6,4 @@ npm.cmd ci --cache (Join-Path $taskRoot '.cache\npm') --no-fund --no-audit
 if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
 npm.cmd run build
 if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
-Write-Output 'Built. Launch with 启动AI.cmd. Node.js is not needed while using the built console.'
+Write-Output 'Built. Launch with StartAI.cmd. Node.js is not needed while using the built console.'

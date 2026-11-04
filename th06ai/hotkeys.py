@@ -1,5 +1,6 @@
 """F7/F8 only. Native key events are queued; hook never does I/O or compute."""
 from __future__ import annotations
+from .i18n import msg
 
 import ctypes as ct
 from ctypes import wintypes as wt
@@ -49,7 +50,7 @@ class Win32KeyEvents:
             if result == 0:
                 return
             if result == -1:
-                raise OSError(ct.get_last_error(), '快捷键消息循环失败')
+                raise OSError(ct.get_last_error(), msg('backend.the_global_hotkey_message_loop_failed'))
             self.translate(ct.byref(message))
             self.dispatch(ct.byref(message))
 
@@ -88,7 +89,7 @@ class GlobalHotkeys:
         self.stop_thread.start(); self.pause_thread.start(); self.thread.start()
         if not self.ready.wait(1):
             self.close()
-            raise RuntimeError('快捷键监听未能启动，未启动训练')
+            raise RuntimeError(msg('backend.the_hotkey_listener_failed_to_start_training'))
 
     def _feed(self, vk, down):
         if vk not in self.keys or self.done.is_set():

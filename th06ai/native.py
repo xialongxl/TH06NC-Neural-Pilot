@@ -4,6 +4,7 @@ The current build was mapped from its own instruction operands, not by adding
 a guessed delta to old TH06 addresses. No write/debug/injection API is used.
 """
 from __future__ import annotations
+from .i18n import msg
 
 import hashlib
 import math
@@ -120,19 +121,19 @@ class GameResources:
                 and 0 <= self.bombs <= 8 and -1 <= self.lives <= 8
                 and 0 <= self.point_items <= 65535
                 and (self.graze is None or 0 <= self.graze <= 999999)):
-            raise RuntimeError("分数/火力/炸弹/残机读取未通过范围校验")
+            raise RuntimeError(msg('backend.score_power_bomb_or_life_readings_failed'))
 
 
 def decode_items(raw: bytes, width: float, height: float) -> np.ndarray:
     if len(raw) != ITEM_CAPACITY * ITEM_STRIDE:
-        raise RuntimeError("道具池读取长度异常")
+        raise RuntimeError(msg('backend.unexpected_item_pool_size'))
     data = np.frombuffer(raw, dtype=ITEM_DTYPE)
     active = data["active"] != 0
     if np.any(active & ((data["type"] < 0) | (data["type"] > 6))):
-        raise RuntimeError("道具类型未知，拒绝把错误数据交给模型")
+        raise RuntimeError(msg('backend.unknown_item_type_the_observation_was_rejected'))
     finite = np.isfinite(data["x"]) & np.isfinite(data["y"]) & np.isfinite(data["vx"]) & np.isfinite(data["vy"])
     if np.any(active & ~finite):
-        raise RuntimeError("道具坐标/速度包含无效数值")
+        raise RuntimeError(msg('backend.item_coordinates_or_velocities_contain_non_finite'))
     visible = active & (data["x"] >= 0) & (data["x"] <= width) & (data["y"] >= 0) & (data["y"] <= height)
     slots = np.flatnonzero(visible)
     return np.column_stack((slots, data["x"][visible], data["y"][visible], data["type"][visible],
@@ -142,17 +143,17 @@ def decode_items(raw: bytes, width: float, height: float) -> np.ndarray:
 def inspect_game(path: Path) -> dict:
     import pefile
     if not path.is_file():
-        raise RuntimeError(f"找不到游戏主程序：{path}")
+        raise RuntimeError(msg('backend.game_executable_not_found_0', path))
     raw = path.read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     if sha != SHA256:
-        raise RuntimeError(f"游戏版本尚未适配，拒绝读取未知地址：SHA256={sha}")
+        raise RuntimeError(msg('backend.unsupported_game_build_memory_reads_were_refused', sha))
     pe = pefile.PE(data=raw, fast_load=True)
     if pe.FILE_HEADER.Machine != 0x8664 or pe.OPTIONAL_HEADER.SizeOfImage != 0xCBC000:
-        raise RuntimeError("游戏 PE 架构或内存布局与已验证版本不符")
+        raise RuntimeError(msg('backend.the_game_s_pe_architecture_or_memory'))
     for rva, expected in SIGNATURES.items():
         if pe.get_data(rva, len(expected)) != expected:
-            raise RuntimeError(f"游戏代码特征与已验证版本不符：RVA 0x{rva:x}")
+            raise RuntimeError(msg('backend.the_game_code_signature_differs_from_the', f'{rva:x}'))
     return {"path": str(path), "sha256": sha, "steam_build": BUILD_ID,
             "architecture": "AMD64", "mode": "read-only", "signature_count": len(SIGNATURES)}
 
@@ -223,7 +224,7 @@ class _StateSnapshot:
             offset = rva - start
             if 0 <= offset and offset + size <= len(region):
                 return region[offset:offset+size]
-        raise ValueError("状态字段超出已读取的快照范围")
+        raise ValueError(msg('backend.state_field_is_outside_the_captured_snapshot'))
 
     def active(self, base):
         node = self.read(BULLET_NODE, 0x40)
@@ -238,11 +239,11 @@ class GameReader:
         self.identity = inspect_game(game_exe)
         candidates = [pid for pid, name in processes() if name.lower() == game_exe.name.lower()]
         if len(candidates) != 1:
-            raise RuntimeError(f"请先打开一个 TH06NC 游戏窗口（当前找到 {len(candidates)} 个游戏进程）")
+            raise RuntimeError(msg('backend.open_one_th06nc_game_window_found_0', len(candidates)))
         self.process = ReadOnlyProcess(candidates[0], game_exe.name)
         if Path(self.process.path).resolve() != game_exe.resolve():
             self.process.close()
-            raise RuntimeError("正在运行的游戏并非配置中指定的主程序")
+            raise RuntimeError(msg('backend.the_running_executable_differs_from_the_configured'))
         try:
             self.window = GameWindow.find(candidates[0])
         except BaseException:
@@ -251,7 +252,7 @@ class GameReader:
         for rva, expected in SIGNATURES.items():
             if self.process.read(rva, len(expected)) != expected:
                 self.close()
-                raise RuntimeError("运行中的游戏代码与磁盘不一致，拒绝接入")
+                raise RuntimeError(msg('backend.the_running_game_code_differs_from_the'))
         self._dtype = BULLET_DTYPE
         self._world = bytearray(WORLD_SIZE)
         self._actors = bytearray(ACTORS_SIZE)
@@ -281,7 +282,7 @@ class GameReader:
             bits = int.from_bytes(p.read(INPUT_WORD,4),'little');observed=clock_ns()
         except (OSError,RuntimeError,ValueError):pass
         if not math.isfinite(x) or not math.isfinite(y) or state>5:
-            raise RuntimeError('轻量自机状态读取异常')
+            raise RuntimeError(msg('backend.invalid_player_control_sample'))
         sample = ControlSample(tick,x,y,state,phase.paused,phase.stage_active,stage,phase.phase,
                                bits,observed,started,clock_ns())
         if engine == 2:
@@ -362,10 +363,10 @@ class GameReader:
         focused = bool(player[0x14C])
         paused = p.read(PAUSED, 1)[0]
         if paused not in (0, 1) or state > 5:
-            raise RuntimeError("自机状态/暂停标记异常，拒绝继续控制")
+            raise RuntimeError(msg('backend.invalid_player_state_or_pause_flag_control'))
         bounds = struct.unpack("<ffff", p.read(BOUNDS, 16))
         if any(not math.isfinite(v) for v in (x, y, *bounds)):
-            raise RuntimeError("读取到非有限的游戏坐标")
+            raise RuntimeError(msg('backend.the_game_returned_non_finite_coordinates'))
         # The static node can be unlinked while the game is paused. Its pinned
         # argument and frame counter remain available; do not turn pause into
         # a fake zero-tick title screen.
@@ -375,7 +376,7 @@ class GameReader:
                          bounds, False, observed_at), started_ns, input_bits, input_observed_ns)
         manager = BULLET_MANAGER
         if not (100 <= bounds[2] <= 1500 and 100 <= bounds[3] <= 1500):
-            raise RuntimeError("游戏场地尺寸未通过校验")
+            raise RuntimeError(msg('backend.the_playfield_dimensions_failed_validation'))
         tick = struct.unpack("<ii", p.read(manager, 8))[1]
         raw = p.read(manager + 8, CAPACITY * STRIDE)
         item_raw = p.read(ITEM_POOL, ITEM_CAPACITY * ITEM_STRIDE)
@@ -390,7 +391,7 @@ class GameReader:
         data = np.frombuffer(raw, self._dtype, CAPACITY)
         states = data["state"]
         if np.any(states > 5):
-            raise RuntimeError("弹幕池结构与当前版本不一致")
+            raise RuntimeError(msg('backend.the_bullet_pool_layout_does_not_match'))
         # Rendering visibility: active/spawning bullets in the visible field.
         # Do not expose velocity fields, RNG, script counters or future spawns.
         width, height = float(bounds[2] + 2 * bounds[0]), float(bounds[3] + 2 * bounds[1])

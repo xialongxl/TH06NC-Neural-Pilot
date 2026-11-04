@@ -74,7 +74,7 @@ def anchors(source):
 
 
 def documents():
-    names = ("README.md", "AGENTS.md", "CONTRIBUTING.md", "DISCLAIMER.md", "THIRD_PARTY_NOTICES.md",
+    names = ("README.md", "README.zh-CN.md", "AGENTS.md", "CONTRIBUTING.md", "DISCLAIMER.md", "THIRD_PARTY_NOTICES.md",
              "frontend/README.md", "native/README.md")
     return [ROOT / name for name in names] + sorted((ROOT / "docs").glob("*.md")) + sorted((ROOT / ".github").rglob("*.md"))
 

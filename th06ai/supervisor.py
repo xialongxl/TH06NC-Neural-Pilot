@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import localized, msg, ui_text
 
 import json
 import os
@@ -43,11 +44,11 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     from .win32 import GuardLock, OwnedJob, get_async_key, release_all, allow_foreground
     import hashlib
     if goal is not None and goal not in ('survival','nmnb'):
-        raise ValueError('不支持的训练目标')
+        raise ValueError(msg('backend.unsupported_training_goal'))
     from .game_settings import parse_setup
     game_setup = parse_setup(game_setup if game_setup is not None else config.game_setup)
     if profile_kind is not None and profile_kind not in ('inference','latency'):
-        raise ValueError('不支持的剖析类型')
+        raise ValueError(msg('backend.unsupported_profile_type'))
 
     suffix = hashlib.sha256(str(ROOT).encode()).hexdigest()[:16]
     if child_command is not None:
@@ -85,8 +86,8 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     child_started = None
     duration = 60 * (config.minutes if minutes is None else minutes)
     if not 0 < duration <= 3600:
-        raise ValueError("监控/训练时长必须在 0 到 60 分钟之间")
-    code, reason = 0, "监控结束"
+        raise ValueError(msg('backend.monitoring_or_training_must_run_for_more'))
+    code, reason = 0, msg('backend.monitoring_ended')
     state = "starting"
     worker = {}
     hotkeys = None
@@ -123,7 +124,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
             while True:
                 now = time.monotonic()
                 if stopping() or (run_dir / "STOP").exists() or hotkey_fn():
-                    raise SafetyTrip("用户紧急停止（停止按钮 / F8）")
+                    raise SafetyTrip(msg('backend.emergency_stop_requested_by_the_user_button'))
                 pause_key = pause_hotkey_fn()
                 if mode in ('train', 'play', 'evaluate') and pause_key and not pause_key_down:
                     toggle_pause()
@@ -143,7 +144,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                     if healthy >= 3 and mode != "monitor" and child is None:
                         job = OwnedJob()
                         if stopping():
-                            raise SafetyTrip('用户紧急停止（F8）')
+                            raise SafetyTrip(msg('backend.emergency_stop_requested_by_the_user_f8'))
                         command = child_command or [sys.executable, "-m", "th06ai.worker", "--mode", mode,
                                                     "--run-dir", str(run_dir), "--minutes", str(duration / 60),
                                                     "--lease-name", lease.name]
@@ -163,7 +164,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                         log = (run_dir / "worker.log").open("w", encoding="utf-8")
                         child = job.start(command, ROOT, env, log)
                         if stopping():
-                            raise SafetyTrip('用户紧急停止（F8）')
+                            raise SafetyTrip(msg('backend.emergency_stop_requested_by_the_user_f8'))
                         child_pid = child.pid
                         # Worker cannot touch game/CUDA until the shared lease is live.
                         child_started = time.monotonic()
@@ -175,30 +176,30 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                         exit_code = child.poll()
                         if exit_code is not None:
                             if stopping() or (run_dir / 'STOP').exists():
-                                raise SafetyTrip('用户紧急停止（停止按钮 / F8）')
+                                raise SafetyTrip(msg('backend.emergency_stop_requested_by_the_user_button'))
                             code = int(exit_code)
                             if code:
                                 failure = read_json(run_dir / "worker_error.json")
                                 detail = failure.get("error") or worker.get("error")
                                 if isinstance(detail, str) and detail:
-                                    raise SafetyTrip(f"AI 报错：{detail}")
-                                raise SafetyTrip(f"AI 进程异常退出（代码 {code}），详见 worker.log")
-                            reason = "AI 运行完成"
+                                    raise SafetyTrip(msg('backend.ai_error_0', detail))
+                                raise SafetyTrip(msg('backend.the_ai_process_exited_with_code_0', code))
+                            reason = msg('backend.ai_run_complete')
                             break
                         beat = worker.get("monotonic", child_started)
                         if not isinstance(beat, (int, float)) or not 0 <= time.monotonic() - beat <= config.safety.worker_heartbeat_seconds:
-                            raise SafetyTrip("AI 进程心跳超时或异常")
+                            raise SafetyTrip(msg('backend.the_ai_worker_heartbeat_is_stale_or'))
                         if time.monotonic() - child_started > config.safety.worker_heartbeat_seconds and not worker:
-                            raise SafetyTrip("AI 进程未启动心跳")
+                            raise SafetyTrip(msg('backend.the_ai_worker_did_not_start_its'))
                         if worker.get("error"):
-                            raise SafetyTrip(f"AI 报错：{worker['error']}")
+                            raise SafetyTrip(msg('backend.ai_error_0', worker['error']))
                         # Count pause time ourselves; never trust a worker-provided
                         # number to extend the independent execution deadline.
                         if mode in ('train', 'play', 'evaluate') and worker.get("user_paused") is True:
                             guarded_pause_seconds += max(0, now - last_guard_tick)
                         state = "paused" if worker.get("user_paused") else "finishing" if worker.get("finishing") else "running"
                     status = {"time": timestamp(), "monotonic": time.monotonic(), "state": state,
-                              "reason": "显卡监控正常", "mode": mode, "pid": os.getpid(),
+                              "reason": msg('backend.gpu_monitoring_healthy'), "mode": mode, "pid": os.getpid(),
                               "child_pid": child_pid, "gpu": last_sample.to_dict(),
                               "sensors": metadata, "worker": worker,
                               "hotkeys": hotkeys.snapshot() if hotkeys else {},
@@ -217,23 +218,21 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                         lease.publish(last_sample.monotonic, last_sample.uuid)
                     if verbose and now - last_console >= 1:
                         s = last_sample
-                        print(f"[{state}] {s.temperature_c:.0f}°C / 停机 {config.safety.temperature_limit_c:.0f}°C | "
-                              f"风扇 {','.join(f'{x:.0f}%' for x in s.fan_percent)} | "
-                              f"{s.power_w:.1f} W | 显存 {s.memory_used / 2**30:.2f}/{s.memory_total / 2**30:.2f} GB",
+                        print(ui_text('backend.telemetry_summary', state, f'{s.temperature_c:.0f}', f'{config.safety.temperature_limit_c:.0f}', ','.join((f'{x:.0f}%' for x in s.fan_percent)), f'{s.power_w:.1f}', f'{s.memory_used / 2 ** 30:.2f}', f'{s.memory_total / 2 ** 30:.2f}'),
                               flush=True)
                         last_console = now
                 if mode == "monitor" and now - started >= duration:
-                    reason = "只读监控计时完成"
+                    reason = msg('backend.read_only_monitoring_time_limit_reached')
                     break
                 # Worker controls the training budget; this hard cap also covers startup hangs.
                 if child_started and now - child_started - guarded_pause_seconds > duration + 120:
-                    raise SafetyTrip("AI 运行超过限定时间，强制停止")
+                    raise SafetyTrip(msg('backend.the_ai_exceeded_its_time_limit_and'))
                 last_guard_tick = now
                 time.sleep(0.01)
     except Exception as exc:
         code, reason = 90, str(exc)
     except KeyboardInterrupt:
-        code, reason = 90, "用户停止（Ctrl+C）"
+        code, reason = 90, msg('backend.stopped_by_the_user_ctrl_c')
     finally:
         # Terminate compute first; never wait for a potentially broken CUDA
         # checkpoint/save. Release keyboard regardless of logging failures.
@@ -278,6 +277,6 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
             except (OSError, RuntimeError):
                 pass
         if verbose:
-            print(f"{'停止' if code else '完成'}：{reason}\n记录：{run_dir}", flush=True)
+            print(ui_text('backend.run_summary', ui_text('backend.stopped_2') if code else ui_text('backend.complete_2'), localized(reason), run_dir), flush=True)
         guard_lock.close()
     return GuardResult(code, reason, run_dir, child_pid)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import json
 from dataclasses import dataclass, field
@@ -36,7 +37,7 @@ class SafetyConfig:
         for name, (low, high) in limits.items():
             value = getattr(self, name)
             if not low <= value <= high:
-                raise ValueError(f"安全参数 {name} 必须在 {low} 到 {high} 之间")
+                raise ValueError(msg('backend.safety_setting_0_must_be_between_1', name, low, high))
 
 
 @dataclass(frozen=True)
@@ -48,13 +49,13 @@ class DiagnosticsConfig:
 
     def __post_init__(self):
         if self.trajectory not in ('full', 'summary', 'off'):
-            raise ValueError('trajectory 必须是 full、summary 或 off')
+            raise ValueError(msg('backend.trajectory_must_be_full_summary_or_off'))
         for name in ('trajectory_every_rollouts', 'checkpoint_every_rollouts'):
             value = getattr(self, name)
             if type(value) is not int or not 1 <= value <= 100:
-                raise ValueError(f'{name} 必须为 1 到 100 的整数')
+                raise ValueError(msg('backend.0_must_be_an_integer_from_1', name))
         if type(self.compression_level) is not int or not 0 <= self.compression_level <= 9:
-            raise ValueError('compression_level 必须为 0 到 9 的整数')
+            raise ValueError(msg('backend.compression_level_must_be_an_integer_from'))
 
 
 @dataclass(frozen=True)
@@ -86,17 +87,17 @@ def load_config(path: Path | str | None = None) -> Config:
     data['diagnostics'] = DiagnosticsConfig(**data.get('diagnostics', {}))
     result = Config(**data)
     if result.device not in ("cpu", "cuda"):
-        raise ValueError("device 必须是 cpu 或 cuda")
+        raise ValueError(msg('backend.device_must_be_cpu_or_cuda'))
     if result.input_backend not in ('python','rust','auto'):
-        raise ValueError('input_backend 必须是 python、rust 或 auto')
+        raise ValueError(msg('backend.input_backend_must_be_python_rust_or'))
     if result.inference_backend not in ('auto','eager','cuda_graph'):
-        raise ValueError('inference_backend 必须是 auto、eager 或 cuda_graph')
+        raise ValueError(msg('backend.inference_backend_must_be_auto_eager_or'))
     if result.capture_backend not in ('auto','python','rust'):
-        raise ValueError('capture_backend 必须是 auto、python 或 rust')
+        raise ValueError(msg('backend.capture_backend_must_be_auto_python_or'))
     if result.goal not in ('survival','nmnb'):
-        raise ValueError('goal 必须是 survival 或 nmnb')
+        raise ValueError(msg('backend.goal_must_be_survival_or_nmnb'))
     if not 0 < result.minutes <= 60:
-        raise ValueError("首版每次运行时间必须在 0 到 60 分钟之间")
+        raise ValueError(msg('backend.the_session_duration_must_be_greater_than'))
     if result.episode_seconds != 0 and not 10 <= result.episode_seconds <= 1800:
-        raise ValueError("单局训练上限必须为 0（不中途截断），或 10 到 1800 个游戏秒")
+        raise ValueError(msg('backend.the_episode_limit_must_be_0_unlimited'))
     return result

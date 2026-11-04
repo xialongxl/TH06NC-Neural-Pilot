@@ -1,3 +1,4 @@
+import { message } from './i18n'
 import type { Snapshot } from './types'
 
 type Path = string[]
@@ -31,8 +32,8 @@ export function reconcile<T>(previous: T, next: T): T {
 }
 
 function updatePath(value: unknown, path: Path, incoming: unknown, remove = false): unknown {
-  if (!path.length || path.some(key => ['__proto__', 'prototype', 'constructor'].includes(key))) throw new Error('无效状态路径')
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('状态需要重新同步')
+  if (!path.length || path.some(key => ['__proto__', 'prototype', 'constructor'].includes(key))) throw new Error(message("console.invalid_state_path"))
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(message("console.state_resync_required"))
   const old = value as Record<string, unknown>, [key, ...rest] = path
   if (!rest.length) {
     if (remove) {
@@ -42,29 +43,29 @@ function updatePath(value: unknown, path: Path, incoming: unknown, remove = fals
     const item = reconcile(old[key], incoming)
     return Object.hasOwn(old, key) && item === old[key] ? value : { ...old, [key]: item }
   }
-  if (!Object.hasOwn(old, key)) throw new Error('状态路径缺失')
+  if (!Object.hasOwn(old, key)) throw new Error(message("console.state_path_missing"))
   const item = updatePath(old[key], rest, incoming, remove)
   return item === old[key] ? value : { ...old, [key]: item }
 }
 
 export function applyFrame(previous: StreamState, frame: StreamFrame): StreamState {
-  if (frame.protocol !== 2 || !Number.isSafeInteger(frame.revision) || frame.revision < 1) throw new Error('状态协议不兼容')
+  if (frame.protocol !== 2 || !Number.isSafeInteger(frame.revision) || frame.revision < 1) throw new Error(message("console.incompatible_state_protocol"))
   if (frame.kind === 'snapshot') {
     return { revision: frame.revision, state: reconcile(previous.state, frame.state) }
   }
-  if (!previous.state) throw new Error('缺少初始快照')
+  if (!previous.state) throw new Error(message("console.initial_snapshot_missing"))
   if (frame.kind === 'heartbeat') {
-    if (frame.revision !== previous.revision) throw new Error('状态版本需要同步')
+    if (frame.revision !== previous.revision) throw new Error(message("console.state_version_resync_required"))
     return previous
   }
-  if (frame.kind !== 'delta' || frame.base !== previous.revision || frame.revision <= frame.base) throw new Error('状态版本不连续')
+  if (frame.kind !== 'delta' || frame.base !== previous.revision || frame.revision <= frame.base) throw new Error(message("console.discontinuous_state_version"))
   let next: unknown = previous.state
   for (const path of frame.remove) next = updatePath(next, path, undefined, true)
   for (const [path, value] of frame.set) next = updatePath(next, path, value)
   if (frame.history) {
     const old = previous.state.gpu_history
     const h = frame.history
-    if (h.mode === 'append' && (!old.length || old.at(-1)!.stamp !== h.after)) throw new Error('曲线游标需要重新同步')
+    if (h.mode === 'append' && (!old.length || old.at(-1)!.stamp !== h.after)) throw new Error(message("console.history_cursor_resync_required"))
     const points = h.mode === 'reset' ? h.points.slice(-180) : [...old, ...h.points].slice(-180)
     next = updatePath(next, ['gpu_history'], points)
   }

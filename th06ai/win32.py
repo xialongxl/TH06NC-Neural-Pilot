@@ -1,5 +1,6 @@
 """Small Windows API boundary: process READ only, ordinary input, owned jobs."""
 from __future__ import annotations
+from .i18n import msg
 
 import ctypes as ct
 import os
@@ -9,7 +10,7 @@ from ctypes import wintypes as wt
 from dataclasses import dataclass
 
 if os.name != "nt":
-    raise RuntimeError("实机控制需要 Windows 10/11")
+    raise RuntimeError(msg('backend.live_game_control_requires_windows_10_or'))
 
 k32 = ct.WinDLL("kernel32", use_last_error=True)
 u32 = ct.WinDLL("user32", use_last_error=True)
@@ -94,7 +95,7 @@ def module_info(pid: int, name: str) -> tuple[int, int, str]:
             ok = next_(handle, ct.byref(entry))
     finally:
         close_handle(handle)
-    raise RuntimeError(f"进程中没有找到 {name}")
+    raise RuntimeError(msg('backend.could_not_find_0_in_the_process', name))
 
 
 class ReadOnlyProcess:
@@ -109,11 +110,11 @@ class ReadOnlyProcess:
 
     def configure_reads(self, backend):
         if backend not in ('auto', 'python', 'rust'):
-            raise ValueError('capture_backend 必须是 auto、python 或 rust')
+            raise ValueError(msg('backend.capture_backend_must_be_auto_python_or'))
         from .acceleration import extension
         self._native_reader = None if backend == 'python' else extension()
         if backend == 'rust' and self._native_reader is None:
-            raise RuntimeError('Rust 只读采集扩展不可用，请构建 ABI v3 或使用 auto/python')
+            raise RuntimeError(msg('backend.the_rust_read_only_capture_extension_is'))
         # Large owned-result copies regress the warm bulk read benchmark.
         # Auto keeps read_into buffers and batches only small phase/control reads.
         self.native_batch = backend == 'rust'
@@ -128,7 +129,7 @@ class ReadOnlyProcess:
         requests = tuple(requests)
         for rva, size in requests:
             if rva < 0 or size <= 0 or rva+size > self.size:
-                raise ValueError('读取范围不在已验证的游戏主模块内')
+                raise ValueError(msg('backend.read_range_is_outside_the_verified_game'))
         module = getattr(self, '_native_reader', None)
         if module is None:
             return tuple(self.read(rva, size) for rva, size in requests)
@@ -139,9 +140,9 @@ class ReadOnlyProcess:
     def read_indirect(self, pointer_rva: int, offset: int, size: int) -> bytes | None:
         """Read a pinned game's heap object; never grant write/operation rights."""
         if not 0 <= offset <= 0x20000 or not 0 < size <= 0x20000-offset:
-            raise ValueError('间接读取范围异常')
+            raise ValueError(msg('backend.invalid_indirect_read_range'))
         if pointer_rva < 0 or pointer_rva+8 > self.size:
-            raise ValueError('读取范围不在已验证的游戏主模块内')
+            raise ValueError(msg('backend.read_range_is_outside_the_verified_game'))
         module = getattr(self, '_native_reader', None)
         if module is not None:
             return module.read_indirect_bytes(int(self.handle), self.base+pointer_rva, offset, size)
@@ -149,11 +150,11 @@ class ReadOnlyProcess:
         if not address:
             return None
         if not 0x10000 <= address <= 0x7fffffffffff-offset-size:
-            raise RuntimeError('游戏对象指针异常')
+            raise RuntimeError(msg('backend.invalid_game_object_pointer'))
         buf=ct.create_string_buffer(size)
         count=ct.c_size_t()
         if not read_memory(self.handle,address+offset,buf,size,ct.byref(count)) or count.value!=size:
-            raise RuntimeError('只读游戏菜单对象失败')
+            raise RuntimeError(msg('backend.read_only_game_menu_query_failed'))
         return buf.raw
 
     @property
@@ -166,11 +167,11 @@ class ReadOnlyProcess:
         """Fill a reusable writable buffer without allocating/copying a new blob."""
         size = len(target)
         if rva < 0 or size <= 0 or rva + size > self.size:
-            raise ValueError("读取范围不在已验证的游戏主模块内")
+            raise ValueError(msg('backend.read_range_is_outside_the_verified_game'))
         buf = (ct.c_ubyte * size).from_buffer(target)
         count = ct.c_size_t()
         if not read_memory(self.handle, self.base + rva, buf, size, ct.byref(count)) or count.value != size:
-            raise RuntimeError(f"只读游戏状态失败 RVA=0x{rva:x} size={size}")
+            raise RuntimeError(msg('backend.read_only_game_state_query_failed_at', f'{rva:x}', size))
 
     def close(self):
         if self.handle:
@@ -222,7 +223,7 @@ class GameWindow:
         enum = bind(u32, "EnumWindows", wt.BOOL, callback_type, wt.LPARAM)
         enum(collect, 0)
         if len(candidates) != 1:
-            raise RuntimeError(f"需要一个可见游戏窗口，目前找到 {len(candidates)} 个")
+            raise RuntimeError(msg('backend.exactly_one_visible_game_window_is_required', len(candidates)))
         return cls(pid, candidates[0])
 
     @property
@@ -232,7 +233,7 @@ class GameWindow:
     def rect(self) -> dict[str, int]:
         rect, point = wt.RECT(), wt.POINT(0, 0)
         if not get_client_rect(self.hwnd, ct.byref(rect)) or not client_to_screen(self.hwnd, ct.byref(point)):
-            raise RuntimeError("无法读取游戏窗口位置")
+            raise RuntimeError(msg('backend.could_not_locate_the_game_window'))
         return {"left": point.x, "top": point.y, "width": rect.right, "height": rect.bottom}
 
     def focus_for_start(self) -> bool:
@@ -332,7 +333,7 @@ def key_events(changes):
         releases = (INPUT * len(changes))(*(_key_input(name, False) for name, _ in changes))
         if releases:
             send_input(len(releases), releases, ct.sizeof(INPUT))
-        raise RuntimeError("键盘输入失败；请确保游戏与 AI 使用相同权限等级")
+        raise RuntimeError(msg('backend.keyboard_input_failed_run_the_game_and'))
     return {"started_ns": started, "completed_ns": completed, "events": len(events),
             "send_ms": (completed-started)/1e6}
 
@@ -368,10 +369,10 @@ class KeyController:
     def _set_locked(self, keys):
         keys = set(keys)
         if not keys <= KEYS.keys():
-            raise ValueError("不支持的游戏按键")
+            raise ValueError(msg('backend.unsupported_game_key'))
         if not self.window.focused:
             self.release()
-            raise GameFocusLost("游戏失去焦点，已经停止发送按键")
+            raise GameFocusLost(msg('backend.the_game_lost_focus_and_key_input'))
         # Deterministic order: release removed keys, set Shift, then movement
         # and buttons. The entire sequence is one SendInput call.
         removed, added = self.held-keys, keys-self.held
@@ -537,7 +538,7 @@ class GuardLock:
         if error == 183:  # ERROR_ALREADY_EXISTS
             close_handle(self.handle)
             self.handle = None
-            raise RuntimeError("本项目已有监控或 AI 进程运行，请先停止当前进程")
+            raise RuntimeError(msg('backend.a_monitor_or_ai_process_is_already'))
 
     def close(self):
         if self.handle:

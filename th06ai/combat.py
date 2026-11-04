@@ -1,5 +1,6 @@
 """Visible enemy decoding and conservative damage accounting; no action rules."""
 from __future__ import annotations
+from .i18n import msg
 
 import math
 import numpy as np
@@ -29,7 +30,7 @@ def decode_enemy_bodies(raw, width, height, player_radius=0.):
     centers. Missing sizes stay unknown, never silently become zero hazards.
     """
     if len(raw) != ENEMY_CAPACITY*ENEMY_STRIDE:
-        raise RuntimeError("敌机本体池读取长度异常")
+        raise RuntimeError(msg('backend.unexpected_enemy_collision_pool_size'))
     data = np.frombuffer(raw, BODY_DTYPE)
     contact = ((data["active"] < 0) & ((data["flags"] & 7) == 7) & ((data["extra_flags"] & 8) == 0)
                & np.isfinite(data["x"]) & np.isfinite(data["y"]))
@@ -52,12 +53,12 @@ def decode_enemy_bodies(raw, width, height, player_radius=0.):
 def decode_enemies(raw, width, height, boss_rvas=()):
     """Rows: slot, x, y, HP, max HP, phase HP reference, combat flags, Boss."""
     if len(raw) != ENEMY_CAPACITY * ENEMY_STRIDE:
-        raise RuntimeError("敌机池读取长度异常")
+        raise RuntimeError(msg('backend.unexpected_enemy_pool_size'))
     data = np.frombuffer(raw, dtype=ENEMY_DTYPE)
     active = data["active"] < 0
     finite = np.isfinite(data["x"]) & np.isfinite(data["y"])
     if np.any(active & ~finite):
-        raise RuntimeError("活动敌机坐标异常")
+        raise RuntimeError(msg('backend.invalid_coordinates_for_an_active_enemy'))
     visible = (active & finite & (data["x"] >= 0) & (data["x"] <= width) &
                (data["y"] >= 0) & (data["y"] <= height) & (data["hp"] > 0) &
                (data["max_hp"] > 0) & (data["hp"] <= data["max_hp"]))

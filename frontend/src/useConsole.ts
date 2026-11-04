@@ -1,3 +1,4 @@
+import { message } from './i18n'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Snapshot } from './types'
 import { applyFrame, pageSchedule, reconcile, streamUrl } from './stream'
@@ -30,7 +31,7 @@ export function useConsole() {
       tokenRequest = new AbortController()
       try {
         const response = await fetch('/api/bootstrap?state=false', { cache: 'no-store', signal: tokenRequest.signal })
-        if (!response.ok) throw new Error('后端未就绪')
+        if (!response.ok) throw new Error(message("console.backend_not_ready"))
         const data = await response.json()
         if (disposed || current !== generation) return
         token.current = data.token
@@ -95,14 +96,14 @@ export function useConsole() {
         headers: { 'Content-Type': 'application/json', 'X-Console-Token': token.current },
         body: body === undefined ? undefined : JSON.stringify(body) })
       const result = await response.json()
-      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '请求参数有误，请检查后重试')
+      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : message("console.invalid_request_check_the_parameters_and_try"))
       if (path === 'server/shutdown') setState(previous => previous ? { ...previous, shutdown: result } : previous)
-      setNotice({ text: result.message || '已选择模型', error: false })
+      setNotice({ text: result.message || message("console.model_selected"), error: false })
       // The next delta acknowledges the resulting state without downloading
       // the full catalog and history again after every button click.
       return true
     } catch (error) {
-      setNotice({ text: error instanceof Error ? error.message : '后端连接失败，可使用 F8 紧急停止', error: true })
+      setNotice({ text: error instanceof Error ? error.message : message("console.backend_connection_failed_press_f8_in_an"), error: true })
       return false
     } finally { pendingRef.current = false; setPending(false) }
   }, [])

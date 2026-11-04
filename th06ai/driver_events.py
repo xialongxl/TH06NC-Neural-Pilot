@@ -1,5 +1,6 @@
 """Read new Windows display-driver error events; never change event logs."""
 from __future__ import annotations
+from .i18n import msg
 
 import ctypes as ct
 from ctypes import wintypes as wt
@@ -59,7 +60,7 @@ class DriverEvents:
                     used, properties = wt.DWORD(), wt.DWORD()
                     self.render(None, event, 1, 0, None, ct.byref(used), ct.byref(properties))
                     if ct.get_last_error() != 122 or not 0 < used.value < 1024 * 1024:
-                        raise RuntimeError("无法读取 Windows 显卡驱动事件")
+                        raise RuntimeError(msg('backend.could_not_read_windows_gpu_driver_events'))
                     buf = ct.create_unicode_buffer(used.value // 2 + 1)
                     if not self.render(None, event, 1, ct.sizeof(buf), buf,
                                        ct.byref(used), ct.byref(properties)):

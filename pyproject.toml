@@ -26,5 +26,8 @@ Issues = "https://github.com/xialongxl/TH06NC-Neural-Pilot/issues"
 [tool.setuptools.packages.find]
 include = ["th06ai*"]
 
+[tool.setuptools.package-data]
+th06ai = ["messages.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,5 +1,6 @@
 """Cooperative training controls. The independent hardware guard stays active."""
 from __future__ import annotations
+from .i18n import msg
 
 import time
 from contextlib import contextmanager
@@ -28,7 +29,7 @@ class TrainingControl:
         self.pause_started = None
         self.busy = False
         self.finishing = False
-        self.pause_reason = "用户暂停"
+        self.pause_reason = msg('backend.paused_by_the_user')
 
     def start(self):
         self.started = self.clock()
@@ -41,7 +42,7 @@ class TrainingControl:
     def active_seconds(self):
         return max(0.0, self.clock() - self.started - self.paused_seconds) if self.started is not None else 0.0
 
-    def request_pause(self, reason="用户暂停"):
+    def request_pause(self, reason=msg('backend.paused_by_the_user')):
         self.pause_reason = reason
         (self.run_dir / "PAUSE").touch()
 
@@ -75,7 +76,7 @@ class TrainingControl:
         game.pause_for_user() if hasattr(game, "pause_for_user") else game.pause()
         while (self.run_dir / "PAUSE").exists():
             self.lease()
-            self.status(user_paused=True, phase="训练已暂停", message=self.pause_reason,
+            self.status(user_paused=True, phase=msg('backend.training_paused'), message=self.pause_reason,
                         training_seconds=round(self.active_seconds, 2),
                         paused_seconds=round(self.paused_seconds, 2))
             if (self.run_dir / "FINISH").exists():

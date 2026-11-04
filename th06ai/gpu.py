@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import math
 import os
@@ -57,48 +58,48 @@ class SafetyPolicy:
         numbers = (s.monotonic, s.temperature_c, s.power_w, s.power_limit_w,
                    s.memory_used, s.memory_total, s.utilization, *s.fan_percent)
         if any(not math.isfinite(n) for n in numbers):
-            self.trip("显卡监控返回无效数值")
+            self.trip(msg('backend.gpu_telemetry_returned_an_invalid_value'))
         if not -0.05 <= now - s.monotonic <= c.telemetry_timeout_seconds:
-            self.trip("显卡监控数据过期或时间异常")
+            self.trip(msg('backend.gpu_telemetry_is_stale_or_its_timestamp'))
         if self.uuid is not None and self.uuid != s.uuid:
-            self.trip("监控显卡身份发生变化")
+            self.trip(msg('backend.the_monitored_gpu_identity_changed'))
         if not s.uuid or not s.name:
-            self.trip("无法确认显卡身份")
+            self.trip(msg('backend.could_not_verify_gpu_identity'))
         if not (0 < s.temperature_c < 120 and 0 <= s.utilization <= 100):
-            self.trip("显卡温度或利用率读数异常")
+            self.trip(msg('backend.invalid_gpu_temperature_or_utilization'))
         if not s.fan_percent or any(not 0 <= x <= 200 for x in s.fan_percent):
-            self.trip("风扇监控不可用或读数异常")
+            self.trip(msg('backend.fan_telemetry_is_unavailable_or_invalid'))
         if not (0 <= s.memory_used <= s.memory_total and s.memory_total > 0):
-            self.trip("显存监控读数异常")
+            self.trip(msg('backend.invalid_vram_reading'))
         if not 0 <= s.power_w or s.power_limit_w <= 0:
-            self.trip("功耗监控读数异常")
+            self.trip(msg('backend.invalid_power_reading'))
         if s.temperature_c >= c.temperature_limit_c:
-            self.trip(f"核心温度达到停机线：{s.temperature_c:.0f}°C >= {c.temperature_limit_c:.0f}°C")
+            self.trip(msg('backend.gpu_core_temperature_reached_the_stop_threshold', f'{s.temperature_c:.0f}', f'{c.temperature_limit_c:.0f}'))
         if s.memory_temperature_c is not None:
             if not math.isfinite(s.memory_temperature_c) or not 0 < s.memory_temperature_c < 140:
-                self.trip("显存温度读数异常")
+                self.trip(msg('backend.invalid_vram_temperature'))
             if s.memory_temperature_c >= c.memory_temperature_limit_c:
-                self.trip(f"显存温度达到停机线：{s.memory_temperature_c:.0f}°C")
+                self.trip(msg('backend.vram_temperature_reached_the_stop_threshold_0', f'{s.memory_temperature_c:.0f}'))
         if s.memory_used / s.memory_total >= c.vram_fraction_limit:
-            self.trip(f"显存占用达到 {c.vram_fraction_limit:.0%} 停机线")
+            self.trip(msg('backend.vram_usage_reached_the_0_stop_threshold', f'{c.vram_fraction_limit:.0%}'))
         if s.power_w > s.power_limit_w * c.power_limit_ratio:
-            self.trip(f"功耗异常：{s.power_w:.1f} W / 限额 {s.power_limit_w:.1f} W")
+            self.trip(msg('backend.abnormal_power_draw_0_w_1_w', f'{s.power_w:.1f}', f'{s.power_limit_w:.1f}'))
         if s.clocks_reasons & s.hardware_fault_mask:
-            self.trip(f"检测到硬件降频、热保护或电源制动，原因位 0x{s.clocks_reasons:x}")
+            self.trip(msg('backend.hardware_throttling_thermal_protection_or_power_braking', f'{s.clocks_reasons:x}'))
         if s.temperature_c >= c.fan_required_at_c and any(x == 0 for x in s.fan_percent):
-            self.trip(f"温度 {s.temperature_c:.0f}°C 时有风扇目标转速仍为零")
+            self.trip(msg('backend.a_fan_still_has_a_zero_target', f'{s.temperature_c:.0f}'))
         if s.fan_rpm is not None:
             if len(s.fan_rpm) != len(s.fan_percent):
-                self.trip("风扇传感器数量发生变化")
+                self.trip(msg('backend.the_number_of_fan_sensors_changed'))
             if any(not math.isfinite(x) or x < 0 for x in s.fan_rpm):
-                self.trip("风扇 RPM 读数异常")
+                self.trip(msg('backend.invalid_fan_rpm_reading'))
             if any(p > 0 and rpm == 0 for p, rpm in zip(s.fan_percent, s.fan_rpm)):
-                self.trip("风扇已有转速指令，但 RPM 报告为零")
+                self.trip(msg('backend.a_fan_reports_zero_rpm_despite_a'))
         if self.first_errors is not None and set(s.errors) != set(self.first_errors):
-            self.trip("硬件错误计数器监控丢失")
+            self.trip(msg('backend.hardware_error_counter_telemetry_was_lost'))
         for name, count in s.errors.items():
             if count < 0 or count > 0:
-                self.trip(f"显卡硬件错误/待修复状态：{name}={count}")
+                self.trip(msg('backend.gpu_hardware_error_or_pending_repair_0', name, count))
         self.uuid = s.uuid
         self.first_errors = dict(s.errors)
 
@@ -143,7 +144,7 @@ class NvmlReader:
             result = fn()
         except (nv.NVMLError_NotSupported, nv.NVMLError_FunctionNotFound, AttributeError):
             if self.capabilities.get(name):
-                raise SafetyTrip(f"原本可用的传感器失联：{name}")
+                raise SafetyTrip(msg('backend.a_previously_available_sensor_stopped_reporting_0', name))
             self.capabilities[name] = False
             return None
         self.capabilities[name] = True
@@ -244,11 +245,11 @@ class AsyncTelemetry:
             kind, value, metadata = self.events.get_nowait()
         except queue.Empty:
             if self.pending_since is not None and time.monotonic() - self.pending_since > timeout_seconds:
-                raise SafetyTrip("NVML 监控查询超时，不能确认显卡状态")
+                raise SafetyTrip(msg('backend.nvml_polling_timed_out_gpu_health_could'))
             return None
         self.pending_since = None
         if kind == "error":
-            raise SafetyTrip(f"显卡监控读取失败：{value}")
+            raise SafetyTrip(msg('backend.gpu_telemetry_read_failed_0', value))
         return value, metadata
 
     def next(self):

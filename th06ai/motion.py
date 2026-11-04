@@ -1,4 +1,5 @@
 """Steady-input motion measurements; no input or process APIs."""
+from .i18n import msg
 import math
 from statistics import median
 
@@ -40,9 +41,9 @@ def held_speed(before, after, keys):
 def measured_speed(samples):
     usable = [float(v) for v in samples if v is not None and math.isfinite(v) and 0 < v < 20]
     if len(usable) < 5:
-        raise ValueError('缺少已确认按键下的稳定移动样本')
+        raise ValueError(msg('backend.no_stable_movement_samples_with_confirmed_input'))
     center = median(usable)
     consistent = [v for v in usable if abs(v-center) <= max(.05, center*.05)]
     if len(consistent) < 5 or len(consistent) < len(usable)*.7:
-        raise ValueError('稳定移动测量不一致，请重新校准')
+        raise ValueError(msg('backend.stable_movement_measurements_disagree_recalibrate'))
     return float(median(consistent))

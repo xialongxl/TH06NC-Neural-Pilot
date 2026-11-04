@@ -1,5 +1,6 @@
 """A fail-closed shared-memory lease; no periodically replaced JSON files."""
 from __future__ import annotations
+from .i18n import msg
 
 import math
 import os
@@ -48,10 +49,10 @@ class SharedLease:
             return
         result = _wait_mutex(self.mutex, 0)
         if result == 0x102:
-            raise LeaseBusy("显卡监控授权正在更新")
+            raise LeaseBusy(msg('backend.gpu_watchdog_authorization_is_being_updated'))
         if result == 0x80:
             _release_mutex(self.mutex)
-            raise RuntimeError("显卡保护通信持有进程异常退出")
+            raise RuntimeError(msg('backend.the_gpu_watchdog_communication_owner_exited_unexpectedly'))
         if result != 0:
             raise ct.WinError(ct.get_last_error())
 
@@ -65,10 +66,10 @@ class SharedLease:
 
     def publish(self, monotonic: float, uuid: str):
         if not self.owner:
-            raise RuntimeError("只允许独立监控进程更新授权")
+            raise RuntimeError(msg('backend.only_the_independent_monitor_can_update_authorization'))
         encoded = uuid.encode("ascii")
         if not 0 < len(encoded) < 96:
-            raise ValueError("GPU 身份长度异常")
+            raise ValueError(msg('backend.invalid_gpu_identity_length'))
         try:
             self._acquire()
         except LeaseBusy:
@@ -116,7 +117,7 @@ class SharedLease:
                 if math.isfinite(timestamp) and owner_pid and uuid:
                     return {"monotonic": timestamp, "uuid": uuid, "supervisor_pid": owner_pid}
                 return {}
-        raise LeaseBusy("显卡监控授权正在更新")
+        raise LeaseBusy(msg('backend.gpu_watchdog_authorization_is_being_updated'))
 
     def read(self):
         """Conservative discovery API used before a worker starts any work."""

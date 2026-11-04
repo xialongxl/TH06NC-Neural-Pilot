@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import localized, ui_text
 
 import os
 import subprocess
@@ -41,14 +42,14 @@ def duration(seconds):
 
 def model_title(entry):
     if entry.path == ROOT / "models" / "latest.zip":
-        return "最近保存"
+        return ui_text('backend.latest_checkpoint')
     if entry.path.parent.name in ("repairs", "checkpoints") or entry.path.stem == "latest":
-        return f"检查点 · {entry.metadata.get('steps', 0):,} 步"
+        return ui_text('backend.checkpoint_0_steps', f"{entry.metadata.get('steps', 0):,}")
     return entry.path.stem
 
 
 def model_status(entry):
-    return "可用" if entry.usable else entry.compatibility
+    return ui_text('backend.available') if entry.usable else localized(entry.compatibility)
 
 
 class Dashboard:
@@ -57,7 +58,7 @@ class Dashboard:
         self.selected, self.process, self.page = None, None, "train"
         self.catalog, self.points, self.variables = [], [], {}
         self.sample_stamp, self.last_catalog_refresh, self.shown_paused = None, 0.0, False
-        root.title("TH06NC AI · 训练控制台" + (" · 界面预览" if preview else ""))
+        root.title(ui_text('backend.th06nc_ai_training_console') + (ui_text('backend.preview') if preview else ""))
         root.geometry("1180x840")
         root.minsize(1080, 800)
         root.configure(bg=BG)
@@ -117,25 +118,25 @@ class Dashboard:
         self.label(sidebar, "TH06NC", size=19, bold=True).pack(anchor="w", padx=25)
         self.label(sidebar, "NEURAL PILOT", color=MUTED, size=8).pack(anchor="w", padx=27, pady=(2, 32))
         self.nav = {}
-        for key, title, detail in (("train", "训练控制台", "TRAINING"), ("models", "模型库", "CHECKPOINTS"),
-                                   ("diagnostics", "保护与诊断", "GUARD / LOGS")):
+        for key, title, detail in (("train", ui_text('backend.training_console'), "TRAINING"), ("models", ui_text('backend.model_library'), "CHECKPOINTS"),
+                                   ("diagnostics", ui_text('backend.safety_diagnostics'), "GUARD / LOGS")):
             btn = self.button(sidebar, f"{title}\n{detail}", lambda k=key: self.show_page(k), kind="quiet", anchor="w", justify="left")
             btn.pack(fill="x", padx=13, pady=4)
             self.nav[key] = btn
         foot = tk.Frame(sidebar, bg=SIDE)
         foot.pack(side="bottom", fill="x", padx=24, pady=23)
         self.label(foot, "PPO  ·  CUDA", color=GOLD, size=9).pack(anchor="w")
-        self.label(foot, "界面预览" if self.preview else "方向键 / Shift / Z / X", color=MUTED, size=8).pack(anchor="w", pady=(8, 0))
+        self.label(foot, ui_text('backend.preview_2') if self.preview else ui_text('backend.arrow_keys_shift_z_x'), color=MUTED, size=8).pack(anchor="w", pady=(8, 0))
         main = tk.Frame(self.root, bg=BG)
         main.pack(side="left", fill="both", expand=True, padx=27, pady=23)
         header = tk.Frame(main, bg=BG)
         header.pack(fill="x")
-        self.page_title = self.label(header, "训练控制台", size=23, bold=True)
+        self.page_title = self.label(header, ui_text('backend.training_console'), size=23, bold=True)
         self.page_title.pack(side="left")
-        self.top_badge = self.label(header, "●  等待启动", color=GREEN, size=10, padx=13, pady=8, bg=PANEL)
+        self.top_badge = self.label(header, ui_text('backend.waiting_to_start'), color=GREEN, size=10, padx=13, pady=8, bg=PANEL)
         self.top_badge.pack(side="right")
-        self.label(main, "学习型弹幕策略 · 模型、训练进度与显卡保护", color=MUTED).pack(anchor="w", pady=(4, 18))
-        self.banner = self.vlabel(main, "banner", "尚未运行。选择模型与时长后，由你启动训练。", color=MUTED,
+        self.label(main, ui_text('backend.learned_bullet_hell_policy_models_training_progress'), color=MUTED).pack(anchor="w", pady=(4, 18))
+        self.banner = self.vlabel(main, "banner", ui_text('backend.ready_to_start_choose_a_model_and'), color=MUTED,
                                   padx=14, pady=10, bg=PANEL2, wraplength=850, justify="left")
         self.banner.pack(fill="x", pady=(0, 17))
         self.pages = {key: tk.Frame(main, bg=BG) for key in self.nav}
@@ -144,15 +145,15 @@ class Dashboard:
         self._diagnostics_page(self.pages["diagnostics"])
         bottom = tk.Frame(main, bg=BG)
         bottom.pack(side="bottom", fill="x", pady=(12, 0))
-        self.label(bottom, "F7  暂停 / 恢复     F8  紧急停止", color=GOLD, size=9).pack(side="left")
-        self.label(bottom, "关闭面板会请求暂停训练" if not self.preview else "预览模式 · 不连接游戏 / GPU", color=MUTED, size=8).pack(side="right")
+        self.label(bottom, ui_text('backend.f7_pause_resume_f8_emergency_stop'), color=GOLD, size=9).pack(side="left")
+        self.label(bottom, ui_text('backend.closing_this_panel_requests_a_training_pause') if not self.preview else ui_text('backend.preview_no_game_or_gpu_connection'), color=MUTED, size=8).pack(side="right")
         self.show_page("train")
 
     def _training_page(self, page):
         metrics = tk.Frame(page, bg=BG)
         metrics.pack(fill="x", pady=(0, 15))
-        for i, (name, title, value, note) in enumerate((("time", "本次有效训练", "00:00", "暂停不计入训练时长"),
-                  ("steps", "累计采样步数", "—", "本次新增 0 步"), ("updates", "参数更新", "—", "保留权重与优化器"))):
+        for i, (name, title, value, note) in enumerate((("time", ui_text('backend.active_training_time'), "00:00", ui_text('backend.pauses_are_excluded_from_training_time')),
+                  ("steps", ui_text('backend.total_sample_steps'), "—", ui_text('backend.0_steps_this_session')), ("updates", ui_text('backend.parameter_updates'), "—", ui_text('backend.weights_and_optimizer_retained')))):
             metrics.columnconfigure(i, weight=1)
             card = self.card(metrics)
             card.grid(row=0, column=i, sticky="nsew", padx=(0 if i == 0 else 8, 0))
@@ -169,46 +170,46 @@ class Dashboard:
         right.grid(row=0, column=1, sticky="nsew")
         inner = tk.Frame(left, bg=PANEL)
         inner.pack(fill="both", expand=True, padx=18, pady=15)
-        self.label(inner, "训练会话", size=14, bold=True).pack(anchor="w")
-        self.label(inner, "当前选择的模型", color=MUTED, size=9).pack(anchor="w", pady=(12, 4))
-        self.vlabel(inner, "model_name", "尚未选择模型", size=11, bold=True, wraplength=435, justify="left").pack(anchor="w")
-        self.vlabel(inner, "model_meta", "在模型库中选择历史检查点", color=MUTED, size=9, wraplength=435,
+        self.label(inner, ui_text('backend.training_session'), size=14, bold=True).pack(anchor="w")
+        self.label(inner, ui_text('backend.selected_model'), color=MUTED, size=9).pack(anchor="w", pady=(12, 4))
+        self.vlabel(inner, "model_name", ui_text('backend.no_model_selected'), size=11, bold=True, wraplength=435, justify="left").pack(anchor="w")
+        self.vlabel(inner, "model_meta", ui_text('backend.choose_a_checkpoint_in_the_model_library'), color=MUTED, size=9, wraplength=435,
                     justify="left").pack(anchor="w", pady=(4, 3))
-        self.button(inner, "选择历史模型  →", lambda: self.show_page("models"), kind="quiet", pady=4).pack(anchor="w")
+        self.button(inner, ui_text('backend.choose_a_checkpoint'), lambda: self.show_page("models"), kind="quiet", pady=4).pack(anchor="w")
         time_row = tk.Frame(inner, bg=PANEL)
         time_row.pack(fill="x", pady=(13, 11))
-        self.label(time_row, "本次训练时长", color=MUTED, size=9).pack(side="left")
+        self.label(time_row, ui_text('backend.session_duration'), color=MUTED, size=9).pack(side="left")
         self.minutes = tk.StringVar(value=str(int(self.config.minutes)))
         self.time_select = ttk.Combobox(time_row, textvariable=self.minutes, values=(1, 5, 10, 30, 60), width=6,
                                        state="readonly", style="Dark.TCombobox", font=(FONT, 9))
         self.time_select.pack(side="right")
-        self.label(time_row, "分钟  ", color=MUTED, size=9).pack(side="right")
-        self.resume_button = self.button(inner, "继续训练", lambda: self.start("resume"), kind="primary")
+        self.label(time_row, ui_text('backend.minutes'), color=MUTED, size=9).pack(side="right")
+        self.resume_button = self.button(inner, ui_text('backend.resume_training'), lambda: self.start("resume"), kind="primary")
         self.resume_button.pack(fill="x")
-        self.new_button = self.button(inner, "新建模型训练", lambda: self.start("train"))
+        self.new_button = self.button(inner, ui_text('backend.train_a_new_model'), lambda: self.start("train"))
         self.new_button.pack(fill="x", pady=(7, 12))
         tk.Frame(inner, bg=LINE, height=1).pack(fill="x", pady=(0, 12))
         row = tk.Frame(inner, bg=PANEL)
         row.pack(fill="x")
-        self.pause_button = self.button(row, "暂停训练  F7", lambda: self.request_pause(not self.shown_paused))
+        self.pause_button = self.button(row, ui_text('backend.pause_training_f7'), lambda: self.request_pause(not self.shown_paused))
         self.pause_button.pack(side="left", expand=True, fill="x", padx=(0, 7))
-        self.finish_button = self.button(row, "保存并结束", self.finish)
+        self.finish_button = self.button(row, ui_text('backend.save_and_finish'), self.finish)
         self.finish_button.pack(side="left", expand=True, fill="x")
-        self.vlabel(inner, "session_note", "继续训练保留已有权重；暂停恢复继续当前回合。", color=MUTED,
+        self.vlabel(inner, "session_note", ui_text('backend.resume_training_retains_the_weights_unpausing_continues'), color=MUTED,
                     size=8, wraplength=435, justify="left").pack(anchor="w", pady=(10, 0))
         gpu = tk.Frame(right, bg=PANEL)
         gpu.pack(fill="both", expand=True, padx=18, pady=15)
-        self.label(gpu, "显卡独立保护", size=14, bold=True).pack(anchor="w")
-        self.vlabel(gpu, "guard", "○  保护待启动", color=MUTED, size=9).pack(anchor="w", pady=(8, 14))
+        self.label(gpu, ui_text('backend.independent_gpu_protection'), size=14, bold=True).pack(anchor="w")
+        self.vlabel(gpu, "guard", ui_text('backend.watchdog_on_standby'), color=MUTED, size=9).pack(anchor="w", pady=(8, 14))
         self.vlabel(gpu, "temperature", "— °C", size=31, bold=True, color=GREEN).pack(anchor="w")
-        self.vlabel(gpu, "gpu_details", "功耗 —   ·   显存 —", color=MUTED, size=9).pack(anchor="w", pady=(3, 7))
+        self.vlabel(gpu, "gpu_details", ui_text('backend.power_vram'), color=MUTED, size=9).pack(anchor="w", pady=(3, 7))
         self.chart = tk.Canvas(gpu, height=84, bg=PANEL, highlightthickness=0)
         self.chart.pack(fill="x", pady=(5, 7))
-        self.label(gpu, "70°C 停机 · 每 250 ms 采样\n监控数据超时 60 秒即停", color=MUTED, size=8, justify="left").pack(anchor="w")
-        self.vlabel(gpu, "survival", "当前生存 —   ·   回合 —", size=9).pack(anchor="w", pady=(15, 6))
-        self.vlabel(gpu, "resources", "P —   B —   残机 —", color=MUTED, size=9).pack(anchor="w")
-        self.vlabel(gpu, "bombs", "炸弹请求 —   ·   实际消耗 —", color=MUTED, size=8).pack(anchor="w", pady=(4, 0))
-        self.stop_button = self.button(gpu, "紧急停止  F8", self.emergency_stop, kind="danger")
+        self.label(gpu, ui_text('backend.stop_at_70_c_sample_every_250'), color=MUTED, size=8, justify="left").pack(anchor="w")
+        self.vlabel(gpu, "survival", ui_text('backend.current_survival_round'), size=9).pack(anchor="w", pady=(15, 6))
+        self.vlabel(gpu, "resources", ui_text('backend.p_b_lives'), color=MUTED, size=9).pack(anchor="w")
+        self.vlabel(gpu, "bombs", ui_text('backend.bomb_requests_used'), color=MUTED, size=8).pack(anchor="w", pady=(4, 0))
+        self.stop_button = self.button(gpu, ui_text('backend.emergency_stop_f8'), self.emergency_stop, kind="danger")
         self.stop_button.pack(side="bottom", fill="x", pady=(14, 0))
 
     def _models_page(self, page):
@@ -216,15 +217,15 @@ class Dashboard:
         page.rowconfigure(1, weight=1)
         row = tk.Frame(page, bg=BG)
         row.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        self.label(row, "历史模型与自动保存的检查点", size=13, bold=True).pack(side="left")
-        self.button(row, "选择文件…", self.browse_model, kind="quiet", pady=6).pack(side="right")
-        self.button(row, "刷新", self.refresh_catalog, kind="quiet", pady=6).pack(side="right", padx=6)
+        self.label(row, ui_text('backend.historical_and_automatically_saved_checkpoints'), size=13, bold=True).pack(side="left")
+        self.button(row, ui_text('backend.choose_file'), self.browse_model, kind="quiet", pady=6).pack(side="right")
+        self.button(row, ui_text('backend.refresh'), self.refresh_catalog, kind="quiet", pady=6).pack(side="right", padx=6)
         columns = ("name", "steps", "updates", "time", "state")
         frame = self.card(page)
         frame.grid(row=1, column=0, sticky="nsew")
         self.table = ttk.Treeview(frame, columns=columns, show="headings", height=4, style="Model.Treeview", selectmode="browse")
-        for name, heading, width in (("name", "模型 / 检查点", 265), ("steps", "累计步数", 95), ("updates", "更新", 60),
-                                      ("time", "保存时间", 145), ("state", "状态", 130)):
+        for name, heading, width in (("name", ui_text('backend.model_checkpoint'), 265), ("steps", ui_text('backend.total_steps'), 95), ("updates", ui_text('backend.updates'), 60),
+                                      ("time", ui_text('backend.saved_at'), 145), ("state", ui_text('backend.status'), 130)):
             self.table.heading(name, text=heading)
             self.table.column(name, width=width, minwidth=55, stretch=name == "name", anchor="w")
         scroll = ttk.Scrollbar(frame, command=self.table.yview)
@@ -233,14 +234,14 @@ class Dashboard:
         self.table.pack(side="left", fill="both", expand=True)
         self.table.bind("<<TreeviewSelect>>", self.select_model)
         self.table.bind("<Double-1>", lambda _: self.show_page("train"))
-        self.vlabel(page, "model_path", "选择模型查看详情", color=MUTED, size=9, wraplength=870, justify="left").grid(row=2, column=0, sticky="w", pady=(13, 4))
-        self.label(page, "每次保存都会保留历史检查点。", color=MUTED, size=9).grid(row=3, column=0, sticky="w")
+        self.vlabel(page, "model_path", ui_text('backend.select_a_model_to_view_details'), color=MUTED, size=9, wraplength=870, justify="left").grid(row=2, column=0, sticky="w", pady=(13, 4))
+        self.label(page, ui_text('backend.each_save_preserves_historical_checkpoints'), color=MUTED, size=9).grid(row=3, column=0, sticky="w")
         actions = tk.Frame(page, bg=BG)
         actions.grid(row=4, column=0, sticky="ew", pady=(13, 0))
-        self.button(actions, "使用所选模型  →", lambda: self.show_page("train"), kind="primary").pack(side="left")
-        self.play_button = self.button(actions, "模型试玩", lambda: self.start("play"))
+        self.button(actions, ui_text('backend.use_selected_model'), lambda: self.show_page("train"), kind="primary").pack(side="left")
+        self.play_button = self.button(actions, ui_text('backend.play_model'), lambda: self.start("play"))
         self.play_button.pack(side="left", padx=8)
-        self.evaluate_button = self.button(actions, "独立评估 10 局", lambda: self.start("evaluate"))
+        self.evaluate_button = self.button(actions, ui_text('backend.evaluate_10_rounds'), lambda: self.start("evaluate"))
         self.evaluate_button.pack(side="left")
 
     def _diagnostics_page(self, page):
@@ -248,18 +249,18 @@ class Dashboard:
         box.pack(fill="both", expand=True)
         area = tk.Frame(box, bg=PANEL)
         area.pack(fill="both", expand=True, padx=22, pady=19)
-        self.label(area, "保护状态与运行记录", size=15, bold=True).pack(anchor="w")
-        self.vlabel(area, "backend", "读取训练环境…", wraplength=825, justify="left").pack(anchor="w", pady=(17, 12))
-        self.label(area, "紧急停止：F8 / 停止按钮 / 核心温度 ≥70°C\n暂停时，显卡监控和工作进程心跳持续运行。\n保存并结束会正常保存权重；紧急停止直接切断训练进程。",
+        self.label(area, ui_text('backend.safety_status_and_run_logs'), size=15, bold=True).pack(anchor="w")
+        self.vlabel(area, "backend", ui_text('backend.reading_training_environment'), wraplength=825, justify="left").pack(anchor="w", pady=(17, 12))
+        self.label(area, ui_text('backend.emergency_stop_f8_stop_button_gpu_core'),
                    color=MUTED, justify="left").pack(anchor="w", pady=(0, 18))
         row = tk.Frame(area, bg=PANEL)
         row.pack(fill="x")
         self.diagnostic_buttons = []
-        for text, mode in (("GPU 自检", "check"), ("仅开启保护监控", "monitor"), ("实机重新校准", "calibrate")):
+        for text, mode in ((ui_text('backend.gpu_check'), "check"), (ui_text('backend.monitor_only'), "monitor"), (ui_text('backend.recalibrate_in_game'), "calibrate")):
             btn = self.button(row, text, lambda m=mode: self.start(m))
             btn.pack(side="left", padx=(0, 8))
             self.diagnostic_buttons.append(btn)
-        self.vlabel(area, "run_path", "暂无运行记录", color=MUTED, size=9, wraplength=825, justify="left").pack(anchor="w", pady=(22, 12))
+        self.vlabel(area, "run_path", ui_text('backend.no_run_records_yet'), color=MUTED, size=9, wraplength=825, justify="left").pack(anchor="w", pady=(22, 12))
         self.log_text = tk.Text(area, height=10, bg=SIDE, fg=MUTED, relief="flat", borderwidth=0,
                                padx=14, pady=12, font=("Consolas", 9), wrap="word", state="disabled")
         self.log_text.pack(fill="both", expand=True)
@@ -270,7 +271,7 @@ class Dashboard:
             widget.pack_forget()
             self.nav[key].configure(bg=PANEL2 if key == page else SIDE, fg=TEXT if key == page else MUTED)
         self.pages[page].pack(fill="both", expand=True)
-        self.page_title.configure(text={"train": "训练控制台", "models": "模型库", "diagnostics": "保护与诊断"}[page])
+        self.page_title.configure(text={"train": ui_text('backend.training_console'), "models": ui_text('backend.model_library'), "diagnostics": ui_text('backend.safety_diagnostics')}[page])
 
     def refresh_catalog(self):
         previous = self.selected.path if self.selected else None
@@ -302,18 +303,18 @@ class Dashboard:
         self.selected = self.catalog[int(selection[0])]
         meta = self.selected.metadata
         self.variables["model_name"].set(model_title(self.selected))
-        self.variables["model_meta"].set(f"{meta.get('steps', 0):,} 步  ·  {meta.get('gradient_updates', 0)} 次更新  ·  {model_status(self.selected)}")
+        self.variables["model_meta"].set(ui_text('backend.legacy_model_metadata', f"{meta.get('steps', 0):,}", meta.get('gradient_updates', 0), model_status(self.selected)))
         self.variables["model_path"].set(str(self.selected.path))
         if not self.preview:
             atomic_json(ROOT / "ui_state.json", {"selected_model": str(self.selected.path)})
 
     def browse_model(self):
-        path = filedialog.askopenfilename(parent=self.root, title="选择本项目的模型检查点", initialdir=ROOT / "models", filetypes=[("PPO 模型", "*.zip")])
+        path = filedialog.askopenfilename(parent=self.root, title=ui_text('backend.select_a_project_checkpoint'), initialdir=ROOT / "models", filetypes=[(ui_text('backend.ppo_model'), "*.zip")])
         if not path:
             return
         target = Path(path).resolve()
         if not target.is_relative_to((ROOT / "models").resolve()):
-            messagebox.showerror("模型位置", "请选择本项目 models 目录或其子目录中的模型。", parent=self.root)
+            messagebox.showerror(ui_text('backend.model_location'), ui_text('backend.choose_a_model_inside_this_project_s'), parent=self.root)
             return
         self.refresh_catalog()
         index = next((i for i, entry in enumerate(self.catalog) if entry.path == target), None)
@@ -329,10 +330,10 @@ class Dashboard:
         if session_active(status):
             if status.get("mode") == "monitor" and mode != "monitor":
                 (path / "STOP").touch()
-                self.variables["banner"].set("正在关闭仅监控会话，随后启动你选择的操作…")
+                self.variables["banner"].set(ui_text('backend.ending_the_monitoring_session_before_starting_the'))
                 self.root.after(900, lambda: self.start(mode))
             else:
-                self.variables["banner"].set("已有会话运行中。使用暂停／恢复，或保存并结束后再启动其他操作。")
+                self.variables["banner"].set(ui_text('backend.a_session_is_running_pause_or_resume'))
             return
         if self.process and self.process.poll() is None:
             return
@@ -345,7 +346,7 @@ class Dashboard:
         with log.open("a", encoding="utf-8") as stream:
             self.process = subprocess.Popen(command, cwd=ROOT, env=dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1"),
                                              stdout=stream, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
-        self.variables["banner"].set("正在启动独立显卡保护，预检通过后执行所选操作…")
+        self.variables["banner"].set(ui_text('backend.starting_the_independent_gpu_watchdog_the_selected'))
 
     def request_pause(self, paused=True):
         if self.preview:
@@ -353,7 +354,7 @@ class Dashboard:
         path, status = current_session()
         if path and session_active(status) and status.get("mode") == "train":
             set_paused(path, paused)
-            self.variables["banner"].set("正在暂停：保留采样进度…" if paused else "正在恢复本次训练，继续当前回合…")
+            self.variables["banner"].set(ui_text('backend.pausing_with_sampling_progress_retained') if paused else ui_text('backend.resuming_training_in_the_current_round'))
 
     def finish(self):
         if self.preview:
@@ -361,7 +362,7 @@ class Dashboard:
         path, status = current_session()
         if path and session_active(status) and status.get("mode") == "train":
             (path / "FINISH").touch()
-            self.variables["banner"].set("等待安全边界并保存模型；显卡保护继续运行。")
+            self.variables["banner"].set(ui_text('backend.waiting_for_a_safe_point_to_save_2'))
 
     def emergency_stop(self):
         if self.preview:
@@ -369,7 +370,7 @@ class Dashboard:
         path, status = current_session()
         if path and session_active(status):
             (path / "STOP").touch()
-            self.variables["banner"].set("已请求紧急停止，后续可从最近一次保存的检查点恢复。")
+            self.variables["banner"].set(ui_text('backend.emergency_stop_requested_resume_from_the_latest'))
 
     def refresh(self):
         path, status = current_session()
@@ -378,31 +379,31 @@ class Dashboard:
         live_train = active and status.get("mode") == "train"
         self.shown_paused = worker.get("user_paused") is True
         state = status.get("state", "idle")
-        labels = {"idle": "等待启动", "starting": "保护预检", "running": "运行中", "monitoring": "保护监控中",
-                  "paused": "训练已暂停", "finishing": "保存并结束中", "stopped": "已停止", "complete": "已完成"}
-        shown = "界面预览" if self.preview else labels.get(state, "等待启动")
+        labels = {"idle": ui_text('backend.waiting_to_start_2'), "starting": ui_text('backend.watchdog_preflight'), "running": ui_text('backend.running'), "monitoring": ui_text('backend.monitoring'),
+                  "paused": ui_text('backend.training_paused'), "finishing": ui_text('backend.saving_and_finishing'), "stopped": ui_text('backend.stopped'), "complete": ui_text('backend.complete')}
+        shown = ui_text('backend.preview_2') if self.preview else labels.get(state, ui_text('backend.waiting_to_start_2'))
         self.top_badge.configure(text="●  " + shown, fg=GOLD if state == "paused" else ACCENT if state == "stopped" else GREEN)
         if self.preview:
-            message = "界面预览 · 运行按钮已禁用，不连接游戏或 GPU。可浏览真实历史模型。"
+            message = ui_text('backend.preview_controls_disabled_browse_saved_checkpoints_and')
         elif status:
             if state in ACTIVE_STATES and not active:
-                message = "会话连接中断，请查看诊断记录。界面未收到新的状态。"
+                message = ui_text('backend.session_connection_lost_check_diagnostics_for_the')
             elif state == "paused":
-                message = "训练已暂停 · 模型、优化器和采样进度保留；剩余时间不减少。点击恢复或按 F7 继续。"
+                message = ui_text('backend.training_paused_with_weights_optimizer_and_samples')
             elif live_train:
-                message = worker.get("phase", "准备训练") + " · " + worker.get("message", "")
+                message = localized(worker.get("phase", ui_text('backend.ready_to_train'))) + " · " + localized(worker.get("message", ""))
             else:
-                message = labels.get(state, "等待启动") + " · " + status.get("reason", "")
+                message = labels.get(state, ui_text('backend.waiting_to_start_2')) + " · " + localized(status.get("reason", ""))
         else:
-            message = "尚未运行。选择模型与时长后，由你启动训练。"
+            message = ui_text('backend.ready_to_start_choose_a_model_and')
         self.variables["banner"].set(message)
         self.variables["time"].set(duration(worker.get("training_seconds", 0)))
-        self.variables["time_note"].set(f"目标 {duration(worker.get('budget_seconds', float(self.minutes.get()) * 60))} · 暂停 {duration(worker.get('paused_seconds', 0))}")
+        self.variables["time_note"].set(ui_text('backend.target_0_paused_1', duration(worker.get('budget_seconds', float(self.minutes.get()) * 60)), duration(worker.get('paused_seconds', 0))))
         selected_meta = self.selected.metadata if self.selected else {}
         self.variables["steps"].set(f"{worker.get('steps', selected_meta.get('steps', 0)):,}")
-        self.variables["steps_note"].set(f"本次新增 {worker.get('session_steps', 0):,} 步")
+        self.variables["steps_note"].set(ui_text('backend.0_new_steps_this_session', f"{worker.get('session_steps', 0):,}"))
         self.variables["updates"].set(str(worker.get("updates", selected_meta.get("gradient_updates", 0))))
-        self.variables["updates_note"].set("训练进行中" if live_train and not self.shown_paused else "暂停保留进度" if live_train else "上次会话的训练记录" if worker else "所选模型已保存的更新")
+        self.variables["updates_note"].set(ui_text('backend.training') if live_train and not self.shown_paused else ui_text('backend.progress_retained_while_paused') if live_train else ui_text('backend.previous_training_session') if worker else ui_text('backend.updates_saved_in_the_selected_model'))
         backend = read_json(ROOT / "training_backend.json")
         calibrated = bool(read_json(ROOT / "native_calibration.json").get("restart_verified"))
         resources_ready = bool(read_json(ROOT / "native_resources_calibration.json").get("operator_confirmed"))
@@ -414,42 +415,52 @@ class Dashboard:
                 (self.pause_button, live_train and state != "finishing"), (self.finish_button, live_train and state != "finishing"),
                 (self.stop_button, active)):
             button.configure(state="normal" if enabled and not self.preview else "disabled")
-        self.pause_button.configure(text="恢复本次训练  F7" if self.shown_paused else "暂停训练  F7")
+        self.pause_button.configure(text=ui_text('backend.resume_this_session_f7') if self.shown_paused else ui_text('backend.pause_training_f7'))
         self.time_select.configure(state="disabled" if busy or self.preview else "readonly")
         for button in self.diagnostic_buttons:
             button.configure(state="disabled" if busy or self.preview else "normal")
         gpu = status.get("gpu") or {}
-        self.variables["guard"].set("●  独立保护持续运行" if active else "○  上次会话采样" if gpu else "○  保护待启动")
+        self.variables["guard"].set(ui_text('backend.independent_watchdog_active') if active else ui_text('backend.previous_session_sample') if gpu else ui_text('backend.watchdog_on_standby'))
         if gpu:
             self.variables["temperature"].set(f"{gpu['temperature_c']:.0f} °C")
-            self.variables["gpu_details"].set(f"{gpu['power_w']:.1f} W  ·  显存 {gpu['memory_used'] / 2**30:.1f} / {gpu['memory_total'] / 2**30:.0f} GB")
+            self.variables["gpu_details"].set(ui_text('backend.0_w_vram_1_2_gb', f"{gpu['power_w']:.1f}", f"{gpu['memory_used'] / 2 ** 30:.1f}", f"{gpu['memory_total'] / 2 ** 30:.0f}"))
             if gpu.get("monotonic") != self.sample_stamp:
                 self.points.append(gpu["temperature_c"])
                 self.points = self.points[-180:]
                 self.sample_stamp = gpu.get("monotonic")
         self.draw_chart()
-        self.variables["survival"].set(f"生存 {worker.get('survival_seconds', 0):.1f} s   ·   第 {worker.get('episodes', 0)} 回合")
+        self.variables["survival"].set(ui_text('backend.survival_0_s_round_1', f"{worker.get('survival_seconds', 0):.1f}", worker.get('episodes', 0)))
         r = worker.get("resources") or {}
-        self.variables["resources"].set(f"P {r.get('power', '—')}   B {r.get('bombs', '—')}   残机 {r.get('lives', '—')}")
-        self.variables["bombs"].set(f"炸弹请求 {worker.get('bomb_requests', '—')}   ·   实际消耗 {worker.get('bombs_used', '—')}")
-        self.variables["backend"].set(f"{backend.get('device', 'GPU 未自检')}  ·  CUDA {backend.get('cuda_runtime', '—')}\n"
-                                     f"实机校准 {'通过' if calibrated else '待完成'}  ·  资源读取 {'通过' if resources_ready else '待完成'}")
-        self.variables["run_path"].set("记录目录：" + str(path) if path else "暂无运行记录")
+        self.variables["resources"].set(ui_text('backend.p_0_b_1_lives_2', r.get('power', '—'), r.get('bombs', '—'), r.get('lives', '—')))
+        self.variables["bombs"].set(ui_text('backend.bomb_requests_0_used_1', worker.get('bomb_requests', '—'), worker.get('bombs_used', '—')))
+        self.variables["backend"].set(ui_text('backend.legacy_backend_readiness', backend.get('device', ui_text('backend.gpu_check_pending')), backend.get('cuda_runtime', '—'), ui_text('backend.passed') if calibrated else ui_text('backend.pending'), ui_text('backend.passed') if resources_ready else ui_text('backend.pending')))
+        self.variables["run_path"].set(ui_text('backend.run_directory') + str(path) if path else ui_text('backend.no_run_records_yet'))
         if self.page == "diagnostics":
-            compatibility = self.selected.compatibility if self.selected else "未选择模型"
-            adaptation = ("旧版模型已迁移" if worker.get("migrated_from") else
-                          "炸弹策略已升级" if worker.get("bomb_policy_upgraded") else "无")
-            text = (f"状态：{shown}\n原因：{status.get('reason', '—')}\n阶段：{worker.get('phase', '—')}\n"
-                    f"累计步数：{worker.get('steps', 0)} / 本次新增：{worker.get('session_steps', 0)}\n"
-                    f"模型来源：{worker.get('model_source') or '新建 / 未启动'}\n最近保存：{worker.get('checkpoint', '—')}\n"
-                    f"所选模型检查：{compatibility}\n本次加载处理：{adaptation}\n"
-                    f"弹幕输入：近场 {worker.get('bullet_observation', {}).get('near', '—')} / 全场 {worker.get('bullet_observation', {}).get('full', '—')} / 已读可见 {worker.get('bullet_observation', {}).get('visible', '—')}\n"
-                    f"路径规划：{'启用' if worker.get('planning', {}).get('enabled') else '未启用'} / 可行方向 {worker.get('planning', {}).get('feasible_roots', '—')} / 耗时 {worker.get('planning', {}).get('elapsed_ms', '—')} ms\n"
-                    f"敌机接触障碍：{worker.get('planning', {}).get('considered_enemy_bodies', '—')} / 几何未知 {worker.get('planning', {}).get('unknown_body_geometry', '—')}\n"
-                    f"本局边缘驻留：{worker.get('loiter_seconds', '—')} 秒 / P 增加：{worker.get('power_gained', '—')} / 点道具增加：{worker.get('point_items_gained', '—')}\n"
-                    f"敌机：{worker.get('enemies', '—')} / Boss HP：{worker.get('boss_hp', '—')}/{worker.get('boss_max_hp', '—')} / 累计 Boss 伤害：{worker.get('boss_damage', '—')}\n"
-                    f"炸弹策略版本：{worker.get('policy_version', '旧版 / 未启动')}\n策略统计：{worker.get('policy_diagnostics', {})}\n"
-                    f"保护通信：{worker.get('lease_diagnostics', {})}\n错误：{worker.get('error', '—')}")
+            compatibility = localized(self.selected.compatibility) if self.selected else ui_text('backend.no_model_selected_2')
+            adaptation = (ui_text('backend.legacy_model_migrated') if worker.get("migrated_from") else
+                          ui_text('backend.bomb_policy_upgraded') if worker.get("bomb_policy_upgraded") else ui_text('backend.none'))
+            text = ui_text(
+                'backend.legacy_diagnostics_summary',
+                shown, localized(status.get('reason', '—')), localized(worker.get('phase', '—')),
+                worker.get('steps', 0), worker.get('session_steps', 0),
+                worker.get('model_source') or ui_text('backend.new_not_started'),
+                worker.get('checkpoint', '—'), compatibility, adaptation,
+                worker.get('bullet_observation', {}).get('near', '—'),
+                worker.get('bullet_observation', {}).get('full', '—'),
+                worker.get('bullet_observation', {}).get('visible', '—'),
+                ui_text('backend.enabled') if worker.get('planning', {}).get('enabled') else ui_text('backend.disabled'),
+                worker.get('planning', {}).get('feasible_roots', '—'),
+                worker.get('planning', {}).get('elapsed_ms', '—'),
+                worker.get('planning', {}).get('considered_enemy_bodies', '—'),
+                worker.get('planning', {}).get('unknown_body_geometry', '—'),
+                worker.get('loiter_seconds', '—'), worker.get('power_gained', '—'),
+                worker.get('point_items_gained', '—'), worker.get('enemies', '—'),
+                worker.get('boss_hp', '—'), worker.get('boss_max_hp', '—'),
+                worker.get('boss_damage', '—'),
+                worker.get('policy_version', ui_text('backend.legacy_not_started')),
+                worker.get('policy_diagnostics', {}), worker.get('lease_diagnostics', {}),
+                localized(worker.get('error', '—')),
+            )
             self.log_text.configure(state="normal")
             self.log_text.delete("1.0", "end")
             self.log_text.insert("1.0", text)

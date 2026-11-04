@@ -1,4 +1,4 @@
 @echo off
-chcp 65001 >nul
-rem Compatibility alias. The normal launcher starts both the API and the web UI.
-call "%~dp0启动AI.cmd" %*
+rem Compatibility alias for the local console launcher.
+call "%~dp0StartAI.cmd" %*
+exit /b %errorlevel%

@@ -2,6 +2,22 @@ import tkinter as tk
 
 from th06ai import dashboard
 from th06ai.config import Config
+from th06ai.i18n import localized, msg, ui_text
+
+
+def test_locale_translates_archived_watchdog_reason_without_changing_wire_text(monkeypatch):
+    reason = msg('backend.ai_error_0', msg('backend.watchdog_authorization_failed',
+                                          msg('backend.invalid_authorization_timestamp')))
+    monkeypatch.setenv('TH06AI_LANG', 'en')
+    assert localized(reason) == 'AI error: GPU watchdog authorization expired. Stopping the AI (Invalid authorization timestamp)'
+    assert msg('backend.ai_error_0', 'fixture') == 'AI 报错：fixture'
+    assert ui_text('backend.training_console') == 'Training Console'
+    monkeypatch.setenv('TH06AI_LANG', 'zh-CN')
+    assert localized(reason) == reason
+    assert ui_text('backend.training_console') == '训练控制台'
+    monkeypatch.delenv('TH06AI_LANG')
+    monkeypatch.setattr('th06ai.i18n.locale.getlocale', lambda: ('Chinese (Simplified)_China', '936'))
+    assert ui_text('backend.training_console') == '训练控制台'
 
 
 def test_model_actions_remain_visible_at_minimum_window_size_and_preview_is_inert(tmp_path, monkeypatch):

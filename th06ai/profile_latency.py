@@ -1,5 +1,6 @@
 """Guarded read/plan/inference trace; no key controller or PPO update exists here."""
 from __future__ import annotations
+from .i18n import msg
 from dataclasses import replace
 import hashlib
 import ctypes as ct
@@ -27,7 +28,7 @@ def percentiles(rows,key):
 def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat=False):
     path=Path(source or ROOT/'models/latest.zip').resolve()
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
-    heartbeat.update(phase='只读延迟剖析',message='只读游戏和推理计时；不发键、不训练')
+    heartbeat.update(phase=msg('backend.read_only_latency_profile'),message=msg('backend.timing_game_reads_and_inference_without_key'))
     model=load_model(path,None,config.device)
     runner=PolicyRunner(model.policy,config.inference_backend,profile=True)
     runner.warmup(lease=heartbeat.lease)
@@ -56,13 +57,13 @@ def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat
     modes=('live_full','replay_full','replay_minimal','replay_switch_1ms')
     try:
         if wait_for_combat:
-            heartbeat.update(profile_ready=True,phase='只读诊断已就绪',message='等待手动解除游戏暂停；不发送按键')
+            heartbeat.update(profile_ready=True,phase=msg('backend.read_only_diagnostics_ready'),message=msg('backend.waiting_for_the_game_to_be_unpaused'))
             deadline=time.monotonic()+60
             while True:
                 heartbeat.lease()
                 probe=reader.read()
                 if probe.phase in ('combat','boss') and not probe.paused:break
-                if time.monotonic()>deadline:raise RuntimeError('未等到手动解除暂停；只读诊断结束，未发送按键')
+                if time.monotonic()>deadline:raise RuntimeError(msg('backend.the_game_was_not_unpaused_read_only'))
                 time.sleep(.05)
             modes=('live_full',)
             repeats=256
@@ -79,7 +80,7 @@ def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat
                     # an old session's game/training fields as current facts.
                     payload={'diagnostic_load_payload':historical} if mode!='replay_minimal' else {}
                     heartbeat.data={**payload,**keep,
-                        'phase':'只读延迟剖析','user_paused':False,'error':None,'profile_mode':mode}
+                        'phase':msg('backend.read_only_latency_profile'),'user_paused':False,'error':None,'profile_mode':mode}
             heartbeat.lease()
             cpu_before=int(query_cpu())
             started=time.perf_counter_ns()
@@ -118,9 +119,9 @@ def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat
                 'policy_ms':(inferred-policy_start)/1e6,'control_probe_ms':(checked-inferred)/1e6,
                 'read_to_ready_ms':(checked-started)/1e6,**decision.timing}
             rows.append(row)
-            heartbeat.update(profile_samples=index+1,profile_mode=mode,phase='只读延迟剖析',
+            heartbeat.update(profile_samples=index+1,profile_mode=mode,phase=msg('backend.read_only_latency_profile'),
                 game_phase=actual.phase,paused=actual.paused,
-                inference=decision.timing,message='没有发送按键，未更新模型')
+                inference=decision.timing,message=msg('backend.diagnostics_ended_without_key_input_or_model'))
             time.sleep(.033 if wait_for_combat else .01)
     finally:
         sys.setswitchinterval(interval)
@@ -135,6 +136,6 @@ def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat
         'gpu_event_scope':'Events inside the captured graph measure its device-stream span; host wait also includes queueing and scheduling.',
         'limits':'No SendInput call, PPO rollout callbacks or reward computation is run. This is not the full training loop; no end-to-end key-response, before/after speedup or survival claim can follow.'}
     atomic_json(Path(run_dir)/'latency_profile.json',report)
-    if not report['source_unchanged']:raise RuntimeError('源模型在诊断期间发生变化')
-    heartbeat.update(phase='只读延迟剖析完成',message='模型文件保持不变；没有启动游戏接管')
+    if not report['source_unchanged']:raise RuntimeError(msg('backend.the_source_checkpoint_changed_during_diagnostics'))
+    heartbeat.update(phase=msg('backend.read_only_latency_profiling_complete'),message=msg('backend.the_profile_left_model_files_intact_and'))
     return report

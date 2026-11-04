@@ -1,10 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { LanguageProvider } from './i18n'
 import './style.css'
 
 const root = document.getElementById('root')!
-const app = <StrictMode><App /></StrictMode>
+const app = <StrictMode><LanguageProvider><App /></LanguageProvider></StrictMode>
 if (import.meta.env.MODE === 'benchmark') {
   void import('./renderProfile').then(({ mountProfile }) => mountProfile(root, app))
 } else {

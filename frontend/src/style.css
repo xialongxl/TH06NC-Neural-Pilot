@@ -1813,8 +1813,25 @@ footer>div:first-child {
   padding:6px 10px;
   font-size:11px;
   gap:6px}
+.language-select {
+  min-height: 30px;
+  max-width: 108px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--panel);
+  font: inherit;
+  font-size: 12px;
+}
 .lifecycle-status>svg { color:var(--accent) }
 @media(max-width:520px) {
+  .topbar { padding-inline: 10px }
+  .topbar-right { gap: 6px }
+  .topbar .connection, .header-stop-label { display: none }
+  .topbar .breadcrumb { min-width: 0 }
+  .topbar .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .language-select { max-width: 86px }
   .server-close { min-width:32px; padding:6px }
   .server-close span { display:none }
 }

@@ -57,6 +57,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | --- | --- | --- |
 | [__init__.py](../th06ai/__init__.py) | 包入口；避免加入游戏／GPU 初始化副作用 | 所有导入者 |
 | [__main__.py](../th06ai/__main__.py) | CLI 参数、open/shutdown/Web/guard 分流 | config、console_lifecycle、supervisor |
+| [i18n.py](../th06ai/i18n.py) | 共享消息目录、终端语言、历史消息本地化 | CLI、旧 Tk、运行状态文案 |
 | [config.py](../th06ai/config.py) | ROOT、端口、Config/SafetyConfig 与校验 | 保护、服务、worker |
 | [console_lifecycle.py](../th06ai/console_lifecycle.py) | 启动复用、身份／端口／启动锁、就绪等待、关闭协调 | CLI、HTTP、所属本机进程 |
 | [web_console.py](../th06ai/web_console.py) | 请求模型、回环路由、token/Origin、SSE、静态 UI | ConsoleService、SnapshotBroker |

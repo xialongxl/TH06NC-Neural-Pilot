@@ -1,5 +1,6 @@
 """Batch-one inference buffers and optional CUDA graphs. No game or input handles."""
 from __future__ import annotations
+from .i18n import msg
 from collections import deque
 from dataclasses import dataclass
 import threading
@@ -21,11 +22,11 @@ class PolicyRunner:
     """One serialized policy owner; training and graph replay share parameter storage."""
     def __init__(self, policy, backend='auto', *, profile=False):
         if backend not in ('auto', 'eager', 'cuda_graph'):
-            raise ValueError('未知推理后端')
+            raise ValueError(msg('backend.unknown_inference_backend'))
         self.policy, self.requested = policy, backend
         self.device = policy.device
         if backend == 'cuda_graph' and self.device.type != 'cuda':
-            raise ValueError('CUDA Graph 需要 CUDA 模型')
+            raise ValueError(msg('backend.cuda_graph_requires_a_cuda_model'))
         self.lock = threading.RLock()
         cuda = self.device.type == 'cuda'
         shapes = {k:(1,*space.shape) for k,space in policy.observation_space.spaces.items()}
@@ -57,7 +58,7 @@ class PolicyRunner:
             source = np.asarray(observation[key], np.float32)
             if source.shape == target.shape[1:]:source = source[None]
             if source.shape != target.shape or not np.isfinite(source).all():
-                raise ValueError(f'推理观测 {key} 形状或数值异常')
+                raise ValueError(msg('backend.invalid_shape_or_values_for_inference_observation', key))
             np.copyto(target, source)
 
     def _forward(self, deterministic):
@@ -140,7 +141,7 @@ class PolicyRunner:
                 self.result_host.copy_(output.detach(), non_blocking=False)
                 packed = self.result_view
             finally:self.policy._fast_inference = previous
-            if not np.isfinite(packed).all():raise RuntimeError('神经网络推理结果包含无效数值')
+            if not np.isfinite(packed).all():raise RuntimeError(msg('backend.the_policy_returned_non_finite_values'))
             finished = time.perf_counter_ns()
             events = self.events.get(bool(deterministic))
             timing = {'engine':self.engine,'prepare_ms':(filled-started)/1e6,

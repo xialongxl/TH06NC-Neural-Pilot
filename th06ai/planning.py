@@ -4,6 +4,7 @@ The cached forecast joins the policy's actual categorical distribution, so PPO
 samples, executes and evaluates the same action and log probability.
 """
 from __future__ import annotations
+from .i18n import msg
 
 from dataclasses import dataclass, replace
 import time
@@ -151,7 +152,7 @@ class RollingPlanner:
         from .acceleration import extension,search_extension
         available=extension() is not None
         if self.settings.collision_backend=='rust' and not available:
-            raise RuntimeError('Rust 碰撞后端不可用，请构建扩展或选择 Python')
+            raise RuntimeError(msg('backend.build_the_rust_collision_extension_or_select'))
         self.collision_backend='rust' if available and self.settings.collision_backend in ('rust','auto') else 'python'
         self.search_backend='rust' if self.collision_backend=='rust' and search_extension() is not None else 'python'
         try:
@@ -175,7 +176,7 @@ class RollingPlanner:
 
     def set_speeds(self, fast, slow):
         if not (np.isfinite(fast) and np.isfinite(slow) and 0 < slow <= fast < 20):
-            raise ValueError('自机速度无效')
+            raise ValueError(msg('backend.invalid_player_movement_speed'))
         if (fast, slow) != (self.fast_speed, self.slow_speed):
             self.fast_speed, self.slow_speed = float(fast), float(slow)
             self.velocities = np.vstack((DIRECTIONS*fast, DIRECTIONS*slow))

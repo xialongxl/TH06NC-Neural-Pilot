@@ -1,5 +1,6 @@
 """Checkpoint discovery and preservation; never delete or overwrite history."""
 from __future__ import annotations
+from .i18n import msg
 
 import hashlib
 import os
@@ -23,29 +24,29 @@ class Checkpoint:
 
     @property
     def usable(self):
-        return self.compatibility in ("可直接续训", "旧版可迁移", "加载时修复炸弹策略")
+        return self.compatibility in (msg('backend.ready_to_resume'), msg('backend.legacy_model_can_be_migrated'), msg('backend.bomb_policy_upgraded_on_load'))
 
     @property
     def label(self):
-        return f"{self.metadata.get('steps', 0):,} 步 · {self.path.parent.name}/{self.path.name}"
+        return msg('backend.0_steps_1_2', f"{self.metadata.get('steps', 0):,}", self.path.parent.name, self.path.name)
 
 
 def inspect_checkpoint(path: Path, *, verify=False) -> Checkpoint:
     meta = read_json(path.with_suffix(".json"))
     if not path.is_file() or not meta:
-        state = "缺少模型或元数据"
+        state = msg('backend.model_or_metadata_missing')
     elif meta.get("game_sha256") != SHA256:
-        state = "游戏版本不匹配"
+        state = msg('backend.game_build_mismatch')
     elif meta.get("format") == OBSERVATION_VERSION:
         version = meta.get("policy_version") or 1
-        state = ("加载时修复炸弹策略" if version < POLICY_VERSION else
-                 "可直接续训" if version == POLICY_VERSION else "不支持的策略版本")
+        state = (msg('backend.bomb_policy_upgraded_on_load') if version < POLICY_VERSION else
+                 msg('backend.ready_to_resume') if version == POLICY_VERSION else msg('backend.unsupported_policy_version'))
     elif meta.get("format") in (1, 2, 3, 4, 5, 6, 7, 8):
-        state = "不支持的策略版本" if (meta.get('policy_version') or 1) > POLICY_VERSION else "旧版可迁移"
+        state = msg('backend.unsupported_policy_version') if (meta.get('policy_version') or 1) > POLICY_VERSION else msg('backend.legacy_model_can_be_migrated')
     else:
-        state = "不支持的观测格式"
+        state = msg('backend.unsupported_observation_format')
     if verify and path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() != meta.get("model_sha256"):
-        state = "文件校验失败"
+        state = msg('backend.file_verification_failed')
     return Checkpoint(path.resolve(), meta, state)
 
 
@@ -110,7 +111,7 @@ def preserve_checkpoint(path: Path, root: Path | None = None):
         return None
     checkpoint = inspect_checkpoint(path, verify=True)
     if not checkpoint.usable:
-        raise RuntimeError(f"旧模型未通过校验，拒绝覆盖：{checkpoint.compatibility}")
+        raise RuntimeError(msg('backend.the_existing_checkpoint_failed_verification_and_cannot', checkpoint.compatibility))
     digest = checkpoint.metadata["model_sha256"]
     target = (root or ROOT / "models") / "checkpoints" / f"step-{checkpoint.metadata.get('steps', 0):09d}-{digest[:12]}.zip"
     target.parent.mkdir(parents=True, exist_ok=True)

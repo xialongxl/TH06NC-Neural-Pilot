@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import json
 import os
@@ -35,7 +36,7 @@ def atomic_json(path: Path, value: object) -> None:
                 break
             except PermissionError:
                 if attempt == 23:
-                    raise RuntimeError(f"无法更新 {path.name}：文件被占用或权限不足") from None
+                    raise RuntimeError(msg('backend.could_not_update_0_the_file_is', path.name)) from None
                 time.sleep(0.005)
     finally:
         tmp.unlink(missing_ok=True)

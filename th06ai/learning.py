@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import csv
 import hashlib
@@ -62,7 +63,7 @@ def adapt_objective(model):
 
 def save_model(model, path: Path, run_dir: Path, steps: int):
     if model._n_updates <= 0:
-        raise RuntimeError("模型还没有完成参数更新，不保存为已训练模型")
+        raise RuntimeError(msg('backend.a_model_must_complete_a_parameter_update'))
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.stem + ".pending.zip")
     model.save(temporary)
@@ -93,13 +94,13 @@ def save_model(model, path: Path, run_dir: Path, steps: int):
 def load_model(path: Path, env, device="cpu"):
     path = path.resolve()
     if not path.is_relative_to((ROOT / "models").resolve()):
-        raise RuntimeError("仅加载本项目 models 目录中自行生成的模型")
+        raise RuntimeError(msg('backend.only_project_generated_models_within_the_models'))
     metadata_path = path.with_suffix(".json")
     if not path.is_file() or not metadata_path.is_file():
-        raise RuntimeError("尚无已训练的模型；请先完成训练，不能用随机权重冒充模型试玩")
+        raise RuntimeError(msg('backend.no_trained_model_exists_train_a_model'))
     checkpoint = inspect_checkpoint(path, verify=True)
     if not checkpoint.usable:
-        raise RuntimeError(f"模型无法加载：{checkpoint.compatibility}")
+        raise RuntimeError(msg('backend.could_not_load_the_model_0', checkpoint.compatibility))
     if checkpoint.metadata.get("format") in (1, 2, 3, 4, 5, 6, 7, 8):
         model = migrate_legacy(path, env, device)
         upgraded = checkpoint.metadata.get("format") == 1 or (checkpoint.metadata.get("policy_version") or 1) < POLICY_VERSION
@@ -110,7 +111,7 @@ def load_model(path: Path, env, device="cpu"):
         model = PausablePPO.load(path, env=env, device=device,
                                 custom_objects={"policy_class": ResourcePolicy} if upgraded else None)
         if not isinstance(model.policy, ResourcePolicy):
-            raise RuntimeError("模型策略类型与版本不符，拒绝带入旧炸弹逻辑")
+            raise RuntimeError(msg('backend.the_policy_type_does_not_match_its'))
         if upgraded:
             # Keep learned movement/encoder/value weights and compatible Adam
             # state. Only the faulty bomb branch and its moments are rebased.
@@ -121,7 +122,7 @@ def load_model(path: Path, env, device="cpu"):
         model.policy_upgrade = {"type": "bomb_exploration_repair", "version": POLICY_VERSION,
                                 "source": str(path), "source_sha256": checkpoint.metadata["model_sha256"],
                                 "bomb_prior": BOMB_PRIOR,
-                                "note": "仅重置炸弹分支；保留移动/编码器/价值参数、兼容优化器状态和累计训练量"}
+                                "note": msg('backend.reset_the_bomb_branch_while_preserving_movement')}
     model.source_checkpoint = str(path)
     model.source_checkpoint_sha256 = checkpoint.metadata.get('model_sha256')
     model.source_checkpoint_steps = checkpoint.metadata.get('steps')
@@ -140,7 +141,7 @@ def migrate_legacy(path: Path, env, device="cpu"):
     import math
     old = PausablePPO.load(path, device=device)
     if old.action_space.n not in (18, 36):
-        raise RuntimeError("旧模型动作数无法安全迁移")
+        raise RuntimeError(msg('backend.the_legacy_action_count_cannot_be_migrated'))
     model = make_model(env, device)
     source, target = old.policy.state_dict(), model.policy.state_dict()
 
@@ -155,7 +156,7 @@ def migrate_legacy(path: Path, env, device="cpu"):
             elif original.shape[1] in (201, 265, 293, 421, 565, 573, 743):
                 result[:, :original.shape[1]] = original
             else:
-                raise RuntimeError("未知的旧观测编码布局")
+                raise RuntimeError(msg('backend.unknown_legacy_observation_layout'))
         elif name == "action_net.weight":
             result[:18] = original
             if bias_prior:
@@ -166,7 +167,7 @@ def migrate_legacy(path: Path, env, device="cpu"):
                 result[:18] += math.log1p(-BOMB_PRIOR)
                 result[18:] = original + math.log(BOMB_PRIOR)
         else:
-            raise RuntimeError(f"无法迁移参数 {name}：{original.shape} → {value.shape}")
+            raise RuntimeError(msg('backend.could_not_migrate_parameter_0_1_2', name, original.shape, value.shape))
         return result
 
     for name, value in target.items():
@@ -225,7 +226,7 @@ class TrainingCallback(BaseCallback):
         self.bombs_used = 0
         self.control = control
         self.base_steps = 0
-        self.finish_reason = "本次时长已完成"
+        self.finish_reason = msg('backend.session_time_limit_reached')
         self.rollout_checkpoint = None
         self.rollout_first_step = None
         self.diagnostics_config = getattr(env, 'diagnostics_config', DiagnosticsConfig())
@@ -257,7 +258,7 @@ class TrainingCallback(BaseCallback):
             runner.warmup(observation, self.lease)
         if self.model.device.type == "cuda":
             torch.cuda.synchronize()
-        self.status(phase="神经网络训练", message="PPO：采样 → 暂停游戏 → 更新权重",
+        self.status(phase=msg('backend.neural_network_training'), message=msg('backend.ppo_collect_samples_pause_the_game_update'),
                     device=str(self.model.device), reward_version=REWARD_VERSION,
                     observation_version=OBSERVATION_VERSION, action_timing_version=ACTION_TIMING_VERSION,
                     steps=self.base_steps, base_steps=self.base_steps, session_steps=0,
@@ -290,7 +291,7 @@ class TrainingCallback(BaseCallback):
         if self.control:
             window = getattr(getattr(self.game, "reader", None), "window", None)
             if window is not None and not window.focused:
-                self.control.request_pause("游戏失去焦点，已自动暂停；点击恢复继续当前回合")
+                self.control.request_pause(msg('backend.the_game_lost_focus_and_was_paused_2'))
             self.control.gate(self.game, resume_game=False)
         resume_started = clock_ns()
         self.game.resume_for_user() if hasattr(self.game, "resume_for_user") else self.game.resume()
@@ -298,7 +299,7 @@ class TrainingCallback(BaseCallback):
         # a fresh observation, not the frame saved before the PPO update.
         observation = self.game.builder.build(self.game.current)
         self.model._last_obs = {name: value[None, ...] for name, value in observation.items()}
-        self.status(phase="神经网络采样", updates=self.model._n_updates,
+        self.status(phase=msg('backend.collecting_policy_samples'), updates=self.model._n_updates,
                     policy_diagnostics=getattr(self.model, "last_policy_diagnostics", {}),
                     rollout_resume_and_observe_ms=(clock_ns()-resume_started)/1e6)
         self.sampling_started_ns = clock_ns()
@@ -404,7 +405,7 @@ class TrainingCallback(BaseCallback):
                 if diagnostics.record_trace(path.name, payload, settings.compression_level):
                     self.submitted_traces.add(path.name)
                 else:
-                    self.status(trajectory_error='诊断队列已满，当前轨迹未写入；死亡记录仍独立保留')
+                    self.status(trajectory_error=msg('backend.the_diagnostic_queue_is_full_this_trajectory'))
             else:
                 pending = path.with_suffix(".pending.npz")
                 np.savez_compressed(pending, **payload)
@@ -425,7 +426,7 @@ class TrainingCallback(BaseCallback):
             self.control.gate(self.game, resume_game=False)
         self.rollouts += 1
         self.update_started_ns = clock_ns()
-        self.status(phase="PPO 更新神经网络", updates=self.model._n_updates)
+        self.status(phase=msg('backend.updating_the_policy_with_ppo'), updates=self.model._n_updates)
 
     def _on_training_end(self):
         self.pause_game()
@@ -436,7 +437,7 @@ class TrainingCallback(BaseCallback):
             path = save_model(self.model, ROOT / "models" / "latest.zip", self.run_dir, self.num_timesteps)
             self.status(checkpoint=str(path or ROOT / "models" / "latest.zip"))
         else:
-            self.status(message="尚未完成一次参数更新，未保存随机模型")
+            self.status(message=msg('backend.no_parameter_updates_completed_the_initial_random'))
         self.status(updates=self.model._n_updates, steps=int(self.num_timesteps),
                     session_steps=int(self.num_timesteps - self.base_steps),
                     training_seconds=round(self.elapsed(), 2))
@@ -458,7 +459,7 @@ class TrainingCallback(BaseCallback):
             'diagnostics':self.game.diagnostics.status() if getattr(self.game,'diagnostics',None) else None,
             "policy_diagnostics": getattr(self.model, "last_policy_diagnostics", {}),
             "mean_survival_seconds": float(np.mean([r["survival_seconds"] for r in self.episode_rows])) if self.episode_rows else None,
-            "note": "训练日志不等于独立评估；请用 evaluate 测量模型表现。"})
+            "note": msg('backend.use_evaluate_to_measure_model_performance_independently')})
 
 
 def train(config: Config, env, run_dir: Path, minutes: float, status, lease, resume: str | None):
@@ -466,7 +467,7 @@ def train(config: Config, env, run_dir: Path, minutes: float, status, lease, res
     torch.set_num_threads(1)
     if config.device == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError("当前为 CPU 版 PyTorch，未启用 CUDA；不会静默切换训练设备")
+            raise RuntimeError(msg('backend.this_pytorch_build_does_not_support_cuda'))
         torch.cuda.set_per_process_memory_fraction(.15)
     model = load_model(Path(resume), env, config.device) if resume else make_model(env, config.device)
     adapt_objective(model)
@@ -482,13 +483,13 @@ def train(config: Config, env, run_dir: Path, minutes: float, status, lease, res
     try:
         model.learn(total_timesteps=10_000_000, callback=callback, reset_num_timesteps=not bool(resume))
     except FinishTraining:
-        callback.finish_reason = "用户保存并结束"
+        callback.finish_reason = msg('backend.save_and_finish_requested')
         control.finishing = True
-        status(phase="正在保存并结束", finishing=True, user_paused=False)
+        status(phase=msg('backend.saving_and_finishing_2'), finishing=True, user_paused=False)
         if control.started is not None:
             callback.on_training_end()
         else:
-            status(phase='已取消启动', message='启动已取消；未更新或覆盖模型', finishing=False)
+            status(phase=msg('backend.startup_cancelled'), message=msg('backend.startup_cancelled_before_any_model_was_updated'), finishing=False)
     finally:
         model.training_control = model.training_game = None
         model.decision_runner = None
@@ -534,7 +535,7 @@ def evaluate(model, env, run_dir: Path, status, lease, episodes=10):
                     control.gate(env)
                 obs = env.builder.build(env.current)
                 continue
-            status(phase="独立模型评估", evaluation_episode=i + 1, evaluation_episodes=episodes)
+            status(phase=msg('backend.independent_model_evaluation'), evaluation_episode=i + 1, evaluation_episodes=episodes)
             if terminated or truncated:
                 rows.append({"episode": i + 1, **episode_row(info,getattr(env,'total_steps',0)),
                              **info.get("episode_diagnostics", {})})

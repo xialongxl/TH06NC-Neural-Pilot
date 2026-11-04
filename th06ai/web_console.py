@@ -1,5 +1,6 @@
 """Loopback REST/SSE server and static frontend; owns no CUDA/game handles."""
 from __future__ import annotations
+from .i18n import msg
 
 from contextlib import asynccontextmanager
 import asyncio
@@ -93,7 +94,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
             expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
             if (origin is not None and origin != expected) or not secrets.compare_digest(
                     request.headers.get("x-console-token", ""), token):
-                return JSONResponse({"detail": "控制请求未授权，请重新打开本机控制台"}, status_code=403)
+                return JSONResponse({"detail": msg('backend.control_request_unauthorized_reopen_the_local_console')}, status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -181,9 +182,9 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
             deadline = time.monotonic() + shutdown_timeout
             while not await asyncio.to_thread(service.shutdown_ready):
                 if time.monotonic() >= deadline:
-                    raise RuntimeError('会话尚未退出，已保留后端。请查看保存状态；紧急时按 F8，之后可重试关闭。')
+                    raise RuntimeError(msg('backend.the_session_is_still_running_check_save'))
                 await asyncio.sleep(.1)
-            service.shutdown_status('stopping', '会话已结束，正在关闭服务')
+            service.shutdown_status('stopping', msg('backend.session_ended_shutting_down_the_service'))
             # Let the POST acknowledgement reach the browser before closing SSE.
             await asyncio.sleep(.2)
             shutdown()
@@ -194,7 +195,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     @app.post('/api/server/shutdown', status_code=202)
     async def close_server(request: Request):
         if shutdown is None:
-            raise ConsoleError('当前服务不支持网页关闭，请使用项目启动入口', 409)
+            raise ConsoleError(msg('backend.this_service_does_not_support_browser_shutdown'), 409)
         result = service.request_shutdown(port=request.url.port or DEFAULT_CONSOLE_PORT)
         if result['state'] != 'stopping' and (app.state.shutdown_task is None or app.state.shutdown_task.done()):
             app.state.shutdown_task = asyncio.create_task(finish_shutdown())
@@ -206,11 +207,11 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     @app.get("/{path:path}")
     def page(path: str):
         if path.startswith("api/"):
-            return JSONResponse({"detail": "接口不存在"}, status_code=404)
+            return JSONResponse({"detail": msg('backend.api_endpoint_not_found')}, status_code=404)
         if path in {"favicon.svg", "icon.svg"} and (frontend / path).is_file():
             return FileResponse(frontend / path)
         if not (frontend / "index.html").is_file():
-            return JSONResponse({"detail": "前端尚未构建，请在 frontend 目录运行 npm ci 与 npm run build"}, status_code=503)
+            return JSONResponse({"detail": msg('backend.build_the_frontend_by_running_npm_ci')}, status_code=503)
         return FileResponse(frontend / "index.html")
 
     return app
@@ -219,7 +220,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
 def launch(config: Config, *, preview=False, port=DEFAULT_CONSOLE_PORT, open_browser=True):
     import uvicorn
     if not 1024 <= port <= 65535:
-        raise ValueError("控制台端口须在 1024 到 65535 之间")
+        raise ValueError(msg('backend.the_console_port_must_be_between_1024'))
     if preview and port == DEFAULT_CONSOLE_PORT:
         port = DEFAULT_PREVIEW_PORT
     url = f"http://127.0.0.1:{port}"
@@ -240,7 +241,7 @@ def launch(config: Config, *, preview=False, port=DEFAULT_CONSOLE_PORT, open_bro
         sock.bind(("127.0.0.1", port))
     except OSError:
         sock.close()
-        raise RuntimeError(f"端口 {port} 已被其他程序占用；可用 --port 指定其他端口") from None
+        raise RuntimeError(msg('backend.port_0_is_in_use_select_another', port)) from None
     (ROOT / "runs").mkdir(exist_ok=True)
     logging.basicConfig(filename=ROOT / "runs/web-console.log", level=logging.INFO, encoding="utf-8")
     def shutdown():

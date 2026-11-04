@@ -1,4 +1,5 @@
 """Learned action logits plus a cached online planner, one true distribution."""
+from .i18n import msg
 import torch
 import math
 from torch import nn
@@ -80,7 +81,7 @@ def exploration_terms(probabilities, bombs_available, prior=None):
     can still learn to outweigh this soft regularizer in useful states.
     """
     if probabilities.shape[-1] != 36:
-        raise ValueError("炸弹策略必须保留 36 类动作")
+        raise ValueError(msg('backend.the_bomb_policy_requires_36_actions'))
     movement = probabilities[..., :18] + probabilities[..., 18:]
     safe_movement = movement.clamp_min(torch.finfo(movement.dtype).tiny)
     entropy = -(movement * safe_movement.log()).sum(-1)
@@ -100,7 +101,7 @@ class ResourcePolicy(MultiInputActorCriticPolicy):
     def _build(self, lr_schedule):
         super()._build(lr_schedule)
         if self.action_space.n != 36 or "resources" not in self.observation_space.spaces:
-            raise ValueError("资源策略需要资源状态和 36 类动作")
+            raise ValueError(msg('backend.the_resource_policy_requires_resource_observations_and'))
         self.reset_bomb_prior()
 
     def reset_bomb_prior(self):

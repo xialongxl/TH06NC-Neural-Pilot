@@ -1,5 +1,6 @@
 """Requested game setup and observed identity are deliberately separate."""
 from __future__ import annotations
+from .i18n import msg
 
 from dataclasses import dataclass, asdict
 import math
@@ -7,7 +8,7 @@ import numpy as np
 
 DIFFICULTIES = ('easy', 'normal', 'hard', 'lunatic', 'extra')
 CHARACTERS = ('reimu_a', 'reimu_b', 'marisa_a', 'marisa_b')
-CHARACTER_LABELS = ('灵梦 A', '灵梦 B', '魔理沙 A', '魔理沙 B')
+CHARACTER_LABELS = (msg('backend.reimu_a'), msg('backend.reimu_b'), msg('backend.marisa_a'), msg('backend.marisa_b'))
 GAME_MODES = ('story', 'practice', 'challenge', 'spell_practice')
 DIFFICULTY_RVA = 0x53D410
 CHARACTER_RVA = 0x53CAD0  # two bytes: character, shot
@@ -30,17 +31,17 @@ class GameSetup:
 
     def __post_init__(self):
         if self.mode not in ('story', 'practice'):
-            raise ValueError('游戏模式须为 story 或 practice')
+            raise ValueError(msg('backend.game_mode_must_be_story_or_practice'))
         if self.difficulty not in DIFFICULTIES or self.character not in CHARACTERS:
-            raise ValueError('未知难度或自机')
+            raise ValueError(msg('backend.unknown_difficulty_or_character'))
         if isinstance(self.stage, bool) or not isinstance(self.stage, int):
-            raise ValueError('关卡须为整数')
+            raise ValueError(msg('backend.stage_must_be_an_integer'))
         if self.mode == 'story' and self.stage != 1:
-            raise ValueError('完整流程从首关开始，指定关卡请使用 Practice')
+            raise ValueError(msg('backend.story_starts_at_stage_1_choose_practice'))
         if self.mode == 'practice' and (self.difficulty == 'extra' or not 1 <= self.stage <= 6):
-            raise ValueError('Practice 支持 Easy–Lunatic 的 Stage 1–6；Extra 使用完整流程入口')
+            raise ValueError(msg('backend.practice_supports_stages_1_6_on_easy'))
         if self.mode == 'practice' and self.difficulty == 'easy' and self.stage == 6:
-            raise ValueError('当前游戏的 Easy Practice 最多到 Stage 5')
+            raise ValueError(msg('backend.easy_practice_is_limited_to_stage_5'))
 
     def to_dict(self):
         return asdict(self)
@@ -56,11 +57,11 @@ def parse_setup(value):
     if value is None or isinstance(value, GameSetup):
         return value
     if not isinstance(value, dict):
-        raise ValueError('游戏设置须为对象')
+        raise ValueError(msg('backend.game_settings_must_be_an_object'))
     try:
         return GameSetup(**value)
     except TypeError as error:
-        raise ValueError('游戏设置包含未知字段') from error
+        raise ValueError(msg('backend.game_settings_contain_unknown_fields')) from error
 
 
 def decode_identity(difficulty, character, shot, practice, spell_practice, challenge):
@@ -114,14 +115,14 @@ def menu_key(frame, setup):
     if phase == 'title_prompt':
         return 'z'
     if type(selection) is not int or not 0 <= selection <= 10:
-        raise ValueError('菜单选项尚未识别')
+        raise ValueError(msg('backend.menu_option_not_recognized'))
     targets = {'title': 2 if setup.mode == 'practice' else 1 if setup.difficulty == 'extra' else 0,
                'difficulty': DIFFICULTIES.index(setup.difficulty) if setup.difficulty != 'extra' else 0,
                'character': CHARACTERS.index(setup.character)//2,
                'shot': CHARACTERS.index(setup.character)%2, 'run_mode': 0,
                'practice_stage': setup.stage-1, 'start_confirm': 0}
     if phase not in targets:
-        raise ValueError('尚未识别可操作的菜单')
+        raise ValueError(msg('backend.no_actionable_menu_detected'))
     # A request may start on an already-open deep menu. Only earlier,
     # confirmed choices are compared; the current cursor is not a commit.
     evidence = frame.phase_evidence
@@ -148,7 +149,7 @@ def menu_key(frame, setup):
     if phase == 'practice_stage':
         count = frame.phase_evidence.get('practice_stage_count')
         if count is None or setup.stage > count:
-            raise ValueError('所选 Practice 关卡尚未解锁或解锁状态未知，请在游戏中核对')
+            raise ValueError(msg('backend.the_selected_practice_stage_is_locked_or'))
     if phase == 'difficulty' and setup.difficulty == 'extra':
         # Extra has its own title entry; this screen is still confirmed with Z.
         return 'z'

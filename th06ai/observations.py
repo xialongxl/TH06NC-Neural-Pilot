@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .i18n import msg
 
 import numpy as np
 from dataclasses import replace
@@ -56,7 +57,7 @@ class ObservationBuilder:
     def __init__(self, planner=None, goal='survival', *, feature_cache=None):
         self.planner = planner
         self.feature_cache = feature_cache if feature_cache is not None else BulletStateCache()
-        if goal not in ('survival','nmnb'):raise ValueError('未知会话目标')
+        if goal not in ('survival','nmnb'):raise ValueError(msg('backend.unknown_session_goal'))
         self.goal = goal
         self.reset()
 
@@ -80,7 +81,7 @@ class ObservationBuilder:
         self.control[:20] = 0
         if action is not None:
             if not 0 <= int(action) < ACTION_COUNT:
-                raise ValueError("模型动作必须是 0 到 35")
+                raise ValueError(msg('backend.model_actions_must_be_numbered_0_35'))
             self.control[int(action) % 18] = 1
             self.control[18:20] = (int(action) >= 18, 1)
         self.control[24:26] = np.clip(np.asarray(blocked_ticks) / 180, 0, 1)
@@ -98,7 +99,7 @@ class ObservationBuilder:
         width = frame.bounds[2] + 2 * frame.bounds[0]
         height = frame.bounds[3] + 2 * frame.bounds[1]
         if width <= 0 or height <= 0:
-            raise RuntimeError("场地尺寸不可用")
+            raise RuntimeError(msg('backend.playfield_dimensions_are_unavailable'))
         bullets = np.zeros((NEAREST, 5), dtype=np.float32)
         full_bullets = np.zeros((FULL_BULLETS, FULL_BULLET_FEATURES), dtype=np.float32)
         current = frame.bullets
@@ -132,7 +133,7 @@ class ObservationBuilder:
             n = len(selected)
             types = frame.items[selected, 3].astype(np.int64)
             if np.any((types < 0) | (types > 6)):
-                raise RuntimeError("模型观测收到未支持的道具类型")
+                raise RuntimeError(msg('backend.the_observation_contains_an_unsupported_item_type'))
             items[:n, :2] = relative_items[selected] / (width, height)
             items[:n, 2:4] = frame.items[selected, 4:6] / 16
             items[np.arange(n), 4 + types] = 1
@@ -210,5 +211,5 @@ def movement_action(keys):
 
 def action_keys(action: int) -> set[str]:
     if not 0 <= int(action) < ACTION_COUNT:
-        raise ValueError("模型动作必须是 0 到 35")
+        raise ValueError(msg('backend.model_actions_must_be_numbered_0_35'))
     return set(_ACTION_KEYS[int(action)])

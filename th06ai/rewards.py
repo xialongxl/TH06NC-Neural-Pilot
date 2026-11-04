@@ -1,5 +1,6 @@
 """Training feedback only. This module never chooses or replaces an action."""
 from __future__ import annotations
+from .i18n import msg
 
 from dataclasses import dataclass
 from collections import deque
@@ -192,13 +193,13 @@ class RewardTracker:
 
     def step(self, frame: Frame, action: int, died: bool) -> RewardStep:
         if self.frame is None:
-            raise RuntimeError("奖励状态尚未初始化")
+            raise RuntimeError(msg('backend.reward_state_has_not_been_initialized'))
         if not 0 <= int(action) < ACTION_COUNT:
-            raise ValueError("模型动作必须是 0 到 35")
+            raise ValueError(msg('backend.model_actions_must_be_numbered_0_35'))
         before = self.frame
         ticks = frame.tick - before.tick
         if ticks < 0 or (ticks == 0 and not died):
-            raise RuntimeError("奖励计算需要推进的游戏帧；计时重置时应先对齐观测")
+            raise RuntimeError(msg('backend.rewards_require_advancing_game_frames_realign_the'))
         risk = collision_risk(frame, before, cache=self.feature_cache)
         threat = risk.threat
         graze_gained = 0

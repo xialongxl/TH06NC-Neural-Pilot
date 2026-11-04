@@ -1,5 +1,6 @@
 """Optional acceleration; importing this module never touches game input."""
 from __future__ import annotations
+from .i18n import msg
 import importlib
 from functools import lru_cache
 import threading
@@ -41,7 +42,7 @@ def rust_plan(start,pending,low,high,velocities,directions,control,bounds,items,
     """One owned snapshot and one detached call for the entire search."""
     import numpy as np
     mod=search_extension()
-    if mod is None:raise RuntimeError('Rust 搜索扩展不可用')
+    if mod is None:raise RuntimeError(msg('backend.the_rust_search_extension_is_unavailable'))
     m,k,q=len(bullets),len(bodies.positions),len(items)
     data=np.empty(88+7*m+9*k+5*q,dtype='<f8')
     data[:8]=(*start,*pending,*low,*high)
@@ -75,7 +76,7 @@ def rust_sweep(starts, velocities, duration, start_tick, low, high, bullets, bul
                radii, uncertainty, bodies=None):
     import numpy as np
     mod=extension()
-    if mod is None:raise RuntimeError('Rust 扩展不可用，请先构建或选择 Python 后端')
+    if mod is None:raise RuntimeError(msg('backend.build_the_rust_extension_or_select_the'))
     starts=np.asarray(starts,np.float32).reshape(-1,2)
     n,m=len(starts),len(bullets)
     circles=np.column_stack((bullets,bullet_velocity,radii,uncertainty)).astype('<f4')
@@ -95,7 +96,7 @@ class RustKeyController:
     """Serializes Python state and the native mutex; no callbacks under native lock."""
     def __init__(self,window,*,dry_run=False):
         mod=extension()
-        if mod is None:raise RuntimeError('Rust 按键后端未构建')
+        if mod is None:raise RuntimeError(msg('backend.the_rust_input_extension_has_not_been'))
         self.window=window
         self._native=mod.NativeInput(window.pid,window.hwnd,dry_run)
         self._lock=threading.RLock()
@@ -104,11 +105,11 @@ class RustKeyController:
     def set(self,keys):
         from .win32 import GameFocusLost
         keys=set(keys)
-        if not keys<=set(KEY_ORDER):raise ValueError('不支持的游戏按键')
+        if not keys<=set(KEY_ORDER):raise ValueError(msg('backend.unsupported_game_key'))
         with self._lock:
             if not self.window.focused:
                 self.release()
-                raise GameFocusLost('游戏失去焦点，已经停止发送按键')
+                raise GameFocusLost(msg('backend.the_game_lost_focus_and_key_input'))
             started=time.perf_counter_ns()
             if keys==self.held:
                 return {'started_ns':started,'completed_ns':started,'events':0,'send_ms':0.,'backend':'rust'}
@@ -117,7 +118,7 @@ class RustKeyController:
             except Exception as error:
                 self.held.clear()
                 if 'game is not foreground' in str(error):
-                    raise GameFocusLost('游戏失去焦点，已经停止发送按键') from None
+                    raise GameFocusLost(msg('backend.the_game_lost_focus_and_key_input')) from None
                 raise
             completed=time.perf_counter_ns()
             self.held=keys

@@ -1,13 +1,14 @@
 """Build-pinned game phases. A frozen tick or empty bullet pool is not a menu."""
 from __future__ import annotations
+from .i18n import msg
 from dataclasses import dataclass
 
-PHASE_NAMES={'combat':'关卡进行中','boss':'Boss 战','pause':'游戏已暂停','continue':'续关菜单',
-             'dialogue':'Boss 对话','script_wait':'剧情过场','title':'主菜单','difficulty':'选择难度',
-             'character':'选择自机','shot':'选择机体','menu_transition':'菜单切换中',
-             'result':'结算画面','dead':'自机中弹','unknown':'等待识别游戏状态',
-             'title_prompt':'标题画面','run_mode':'选择游戏模式','start_confirm':'确认开始游戏',
-             'practice_stage':'Practice 选择关卡'}
+PHASE_NAMES={'combat':msg('backend.stage_in_progress'),'boss':msg('backend.boss_fight'),'pause':msg('backend.game_paused'),'continue':msg('backend.continue_menu'),
+             'dialogue':msg('backend.boss_dialogue'),'script_wait':msg('backend.cutscene'),'title':msg('backend.main_menu'),'difficulty':msg('backend.select_difficulty'),
+             'character':msg('backend.select_character'),'shot':msg('backend.select_shot_type'),'menu_transition':msg('backend.menu_transition'),
+             'result':msg('backend.results_screen'),'dead':msg('backend.player_hit'),'unknown':msg('backend.waiting_for_game_state'),
+             'title_prompt':msg('backend.title_screen'),'run_mode':msg('backend.select_game_mode'),'start_confirm':msg('backend.confirm_game_start'),
+             'practice_stage':msg('backend.practice_stage_select')}
 COMBAT_PHASES={'combat','boss','dead'}
 
 def phase_of(frame):

@@ -1,5 +1,6 @@
 """Guarded, inference-only benchmark. Never opens the game or saves a model."""
 from __future__ import annotations
+from .i18n import msg
 import hashlib
 from pathlib import Path
 import time
@@ -14,10 +15,10 @@ from .learning import load_model
 def profile_inference(config, run_dir, source, status, lease, repeats=96):
     path=Path(source or ROOT/'models/latest.zip').resolve()
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
-    status(phase='离线推理基准',message='只重放已记录观测，不读取游戏、不发按键、不更新权重')
+    status(phase=msg('backend.offline_inference_benchmark'),message=msg('backend.replaying_recorded_observations_without_game_reads_key'))
     model=load_model(path,None,config.device)
     traces=sorted((ROOT/'runs').glob('*/observations-*.npz'),key=lambda p:p.stat().st_mtime,reverse=True)
-    if not traces:raise RuntimeError('没有已记录的 PPO 观测，无法进行真实输入基准')
+    if not traces:raise RuntimeError(msg('backend.recorded_ppo_observations_are_required_for_an'))
     with np.load(traces[0],allow_pickle=False) as data:
         count=len(data['steps'])
         observations=[]
@@ -46,17 +47,17 @@ def profile_inference(config, run_dir, source, status, lease, repeats=96):
         with torch.no_grad():model.policy.value_net.bias.add_(1)
         after=fast.predict(observations[0],True,lease)
         if not torch.allclose(after.values,before.values+1,atol=1e-4):
-            raise RuntimeError('捕获推理没有读取当前参数')
+            raise RuntimeError(msg('backend.captured_inference_did_not_read_the_current'))
     finally:
         with torch.no_grad():model.policy.value_net.bias.copy_(original_bias)
     restored=fast.predict(observations[0],True,lease)
-    if not torch.equal(restored.values,before.values):raise RuntimeError('基准参数恢复验证失败')
+    if not torch.equal(restored.values,before.values):raise RuntimeError(msg('backend.benchmark_parameter_restoration_failed_verification'))
     errors=[]
     for observation in observations:
         lease()
         a=eager.predict(observation,True,lease)
         b=fast.predict(observation,True,lease)
-        if not np.array_equal(a.actions,b.actions):raise RuntimeError('优化推理与常规推理的确定性动作不一致')
+        if not np.array_equal(a.actions,b.actions):raise RuntimeError(msg('backend.optimized_and_reference_inference_selected_different_deterministic'))
         errors.append(max(float(torch.max(torch.abs(a.values-b.values))),
                           float(torch.max(torch.abs(a.log_probs-b.log_probs))),abs(a.bomb_probability-b.bomb_probability)))
         sample=fast.predict(observation,False,lease)
@@ -64,7 +65,7 @@ def profile_inference(config, run_dir, source, status, lease, repeats=96):
         with torch.no_grad():
             values,logs,_=model.policy.evaluate_actions(tensor,torch.as_tensor(sample.actions,device=model.device))
         error=max(float(torch.max(torch.abs(values.cpu()-sample.values))),float(torch.max(torch.abs(logs.cpu()-sample.log_probs))))
-        if error>1e-4:raise RuntimeError(f'采样动作与训练概率不一致：{error}')
+        if error>1e-4:raise RuntimeError(msg('backend.sampled_action_and_training_probability_disagree_0', error))
         errors.append(error)
     measurements={'original_call':[],'buffered_eager':[],'optimized':[]}
     for index in range(repeats):
@@ -97,6 +98,6 @@ def profile_inference(config, run_dir, source, status, lease, repeats=96):
             'latency':summaries,'raw_ms':measurements,
             'scope':'Inference microbenchmark on recorded inputs; not an end-to-end live latency or survival measurement.'}
     atomic_json(Path(run_dir)/'inference_profile.json',report)
-    if not unchanged:raise RuntimeError('源检查点在基准期间发生变化')
-    status(phase='离线推理基准完成',message='模型文件保持不变；未启动游戏接管',inference=summaries['optimized'])
+    if not unchanged:raise RuntimeError(msg('backend.the_source_checkpoint_changed_during_the_benchmark'))
+    status(phase=msg('backend.offline_inference_benchmark_complete'),message=msg('backend.the_benchmark_left_model_files_intact_and'),inference=summaries['optimized'])
     return report

@@ -1,4 +1,5 @@
 """Lightweight planning metadata; no NumPy/Torch in the hardware watchdog."""
+from .i18n import msg
 from dataclasses import dataclass
 
 PLANNER_VERSION = 7
@@ -20,6 +21,6 @@ class PlanningConfig:
 
     def __post_init__(self):
         if not isinstance(self.enabled, bool) or not 1 <= self.beam_width <= 4:
-            raise ValueError("路径规划 enabled 必须为布尔值，beam_width 必须为 1 到 4")
+            raise ValueError(msg('backend.planning_enabled_must_be_boolean_and_beam'))
         if self.collision_backend not in ('python','rust','auto'):
-            raise ValueError('collision_backend 必须是 python、rust 或 auto')
+            raise ValueError(msg('backend.collision_backend_must_be_python_rust_or'))

@@ -3,6 +3,7 @@
 Based on stable-baselines3 2.9's OnPolicyAlgorithm.collect_rollouts (MIT).
 No rollout reset, counter reset or optimizer recreation occurs on a UI pause.
 """
+from .i18n import msg
 import numpy as np
 import torch
 from gymnasium import spaces
@@ -36,7 +37,7 @@ class PausablePPO(PPO):
         if self.training_control is None:
             return super().collect_rollouts(env, callback, rollout_buffer, n_rollout_steps)
         if env.num_envs != 1 or not isinstance(self.action_space, spaces.Discrete):
-            raise RuntimeError("实机暂停控制只支持一个游戏和离散动作")
+            raise RuntimeError(msg('backend.live_pause_control_requires_one_game_environment'))
         assert self._last_obs is not None
         self.policy.set_training_mode(False)
         rollout_buffer.reset()
