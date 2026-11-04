@@ -20,7 +20,7 @@ Run commands from the repository root unless indicated otherwise. The calibratio
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 notepad .\config.json
 powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
-.\StartAI.cmd
+powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
 ```
 
 Review the scripts before running them. The execution-policy option applies to the PowerShell process for that invocation. The installer uses the repository root, reuses an existing `.venv`, and downloads the exact Windows CPython 3.10 CUDA wheel from the official PyTorch index. It checks part sizes and verifies the assembled wheel against its SHA-256 before installing it. An absent `config.json` is created from the example. Set `game_exe` to the full executable path on your machine.
@@ -116,6 +116,8 @@ Compare Power, bombs, and remaining lives against the in-game HUD. Save the foll
 
 ## Local service and development mode
 
+For daily use, double-click the generated `LaunchAI.exe` in the project root. The build script uses an isolated PyInstaller environment and packages the lifecycle code and bilingual messages. The backend still runs through the project's `pythonw.exe`, so install the project dependencies and build the web console first. Use **Shut Down** in the console or run `.\LaunchAI.exe shutdown`.
+
 ```powershell
 .\.venv\Scripts\python.exe -m th06ai open
 .\.venv\Scripts\python.exe -m th06ai shutdown
@@ -171,6 +173,6 @@ POST requests require the bootstrap `X-Console-Token` and same-origin validation
 
 From an MSVC/Rust development shell run `python tools/build_native.py` using the project interpreter. Use `--test` for native tests or `--planner-only` to build the standalone planner. Custom toolchains use `--toolchain` and `--vcvars`. Finish the session before replacing a loaded `.pyd`. [Native build guide](../../native/README.md)
 
-Supported deployment is a Windows source checkout with the locally configured game, installed dependencies, and built frontend. Single-file EXE, bundled wheel deployment, Docker, Linux live play, and a public multi-user server are outside the verified scope.
+Supported deployment is a Windows source checkout with the locally configured game, installed dependencies, and built frontend. The single-file executable provides the launcher. Bundled wheel deployment, Docker, Linux live play, and public multi-user hosting remain outside the verified scope.
 
 For a source release, review tracked and staged contents from this checkout before pushing the actual remote. Git ignore rules exclude local runtime artifacts from new additions. Audit the index and history separately. A source ZIP can be generated with `git archive` from a reviewed commit. [Release checklist](open-source-readiness.md)

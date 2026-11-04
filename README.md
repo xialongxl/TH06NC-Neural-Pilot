@@ -40,10 +40,11 @@ git clone https://github.com/xialongxl/TH06NC-Neural-Pilot.git
 cd TH06NC-Neural-Pilot
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
 ```
 
 1. Open `config.json` and set `game_exe` to the full path to your `th06nc.exe`. The install script creates the file from `config.example.json` on the first run.
-2. Run `StartAI.cmd` and open the console at [127.0.0.1:18765](http://127.0.0.1:18765). Choose **English** or **简体中文** in the top bar. The browser remembers your selection.
+2. Double-click `LaunchAI.exe` in File Explorer. It opens the console at [127.0.0.1:18765](http://127.0.0.1:18765) without a terminal window. Choose **English** or **简体中文** in the top bar. The browser remembers your selection.
 3. In **Safety & Diagnostics**, run the GPU check, open the game, and complete live calibration. Then verify Power, bombs, and lives and save the required local resource confirmation. [First-run calibration](docs/en/development.md#first-run-calibration)
 4. In the **Training Console**, choose your game setup, objective, and duration. Select **New model** for a fresh run or **Resume Training** to continue from a saved checkpoint. Keep the game window focused during live play.
 
@@ -63,9 +64,11 @@ The preview opens at port `18766`. CLI and legacy desktop messages use the syste
 | **Resume Training** | Start a fresh session using saved weights and compatible optimizer state. |
 | **Save and Finish** | Stop at a safe boundary and write the latest updated checkpoint. |
 | **F8** | Stop the protected process tree and release keys immediately. Recovery starts from the last completed checkpoint. |
-| **Shut Down** or `CloseAI.cmd` | Finish the active session, save training progress, and shut down the local backend. |
+| **Shut Down** | Finish the active session, save training progress, and shut down the local backend. |
 
-Refreshing or closing the browser keeps the session running. During play, the agent uses the arrow keys, **Shift** for focus movement, **Z** to shoot, and **X** to bomb. The independent GPU watchdog continues to run during pauses. Default stop conditions include a 70°C core temperature, 90% VRAM usage, and 60 seconds of stale telemetry. [Safety configuration](docs/en/development.md#safety-settings)
+Refreshing or closing the browser keeps the session running. Double-click the launcher again to reopen the existing console. You can also run `.\LaunchAI.exe shutdown` to shut it down with the same launcher.
+
+During play, the agent uses the arrow keys, **Shift** for focus movement, **Z** to shoot, and **X** to bomb. The independent GPU watchdog continues to run during pauses. Default stop conditions include a 70°C core temperature, 90% VRAM usage, and 60 seconds of stale telemetry. [Safety configuration](docs/en/development.md#safety-settings)
 
 ## How it works
 

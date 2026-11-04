@@ -22,7 +22,7 @@ CUDA runs the policy's training and inference work. Game capture, session logic,
 
 F7 pauses or resumes the same process and keeps the current round and partial rollout in memory. Saving and resuming from a checkpoint starts a new session with saved weights and compatible optimizer state. F8 stops immediately. The latest successful checkpoint is the recovery point. F7 and F8 are standalone keys.
 
-Closing or refreshing the browser leaves the session running. Use **Save and Finish** for a normal training finish or **Shut Down** / `CloseAI.cmd` to close the backend as well. Use F8 when immediate stop is needed.
+Closing or refreshing the browser leaves the session running. Use **Save and Finish** for a normal training finish. To close the backend as well, use **Shut Down** in the console or run `.\LaunchAI.exe shutdown`. Use F8 when immediate stop is needed.
 
 ## What do survival and NMNB measure?
 
@@ -50,7 +50,7 @@ Start with the exact status reason, project commit, game scene, and minimal repr
 
 ## Can I run it as a single executable or server?
 
-The supported setup is a Windows source checkout with a locally built UI served by Python over loopback. Single-file EXE, a bundled wheel, Docker, Linux live play, and public multi-user hosting are outside the verified deployment scope. [Development and deployment](development.md)
+The supported setup is a Windows source checkout with a locally built UI served by Python over loopback. `LaunchAI.exe` provides a single-file entry point to that installation. A bundled wheel, Docker, Linux live play, and public multi-user hosting are outside the verified deployment scope. [Development and deployment](development.md)
 
 ## How do MIT and the game's rights interact?
 

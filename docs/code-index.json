@@ -281,11 +281,12 @@
     },
     {
       "path": "th06ai/config.py",
-      "sha256": "bc3ef0c352c4f4655ff287c60fabe8982201cd9f251b27bba42b27b7f399f491",
+      "sha256": "f4c4cd3c9a58546411620d3de25720dd66a6c17ab57d6377d5dc9351059cfeec",
       "summary": "",
       "imports": [
         ".game_settings",
         ".i18n",
+        ".paths",
         ".planner_spec",
         "__future__",
         "dataclasses",
@@ -296,12 +297,12 @@
         {
           "name": "SafetyConfig",
           "kind": "class",
-          "line": 16,
+          "line": 13,
           "bases": [],
           "methods": [
             {
               "name": "__post_init__",
-              "line": 26,
+              "line": 23,
               "signature": "self"
             }
           ]
@@ -309,12 +310,12 @@
         {
           "name": "DiagnosticsConfig",
           "kind": "class",
-          "line": 44,
+          "line": 41,
           "bases": [],
           "methods": [
             {
               "name": "__post_init__",
-              "line": 50,
+              "line": 47,
               "signature": "self"
             }
           ]
@@ -322,12 +323,12 @@
         {
           "name": "Config",
           "kind": "class",
-          "line": 62,
+          "line": 59,
           "bases": [],
           "methods": [
             {
               "name": "game_path",
-              "line": 78,
+              "line": 75,
               "signature": "self"
             }
           ]
@@ -335,19 +336,19 @@
         {
           "name": "load_config",
           "kind": "function",
-          "line": 82,
+          "line": 79,
           "signature": "path: Path | str | None=None"
         }
       ]
     },
     {
       "path": "th06ai/console_lifecycle.py",
-      "sha256": "84c70206232bb4e7b04b2bc188581a59e703555ae16ccabef3e23007ca6d201a",
+      "sha256": "e7bf5506d76ce0a9545c8801b0ba90a5622917a6400e4c2ef6e3435448c07997",
       "summary": "Local console launch/exit controls; never kill a PID or touch another project.",
       "imports": [
-        ".config",
         ".files",
         ".i18n",
+        ".paths",
         "__future__",
         "contextlib",
         "ctypes",
@@ -2689,6 +2690,15 @@
           "signature": "action: int"
         }
       ]
+    },
+    {
+      "path": "th06ai/paths.py",
+      "sha256": "99c466a32e08445f636260b35791d734ff2a4136bc7aadab3cc9398c8585996e",
+      "summary": "Shared project location and loopback defaults for the console and launcher.",
+      "imports": [
+        "pathlib"
+      ],
+      "symbols": []
     },
     {
       "path": "th06ai/pausable_ppo.py",

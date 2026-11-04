@@ -6,7 +6,7 @@ The React and TypeScript console displays session state and submits explicit ope
 
 ## Run and develop
 
-After the production build, run `StartAI.cmd` from the project root. Python serves `frontend/dist` at [127.0.0.1:18765](http://127.0.0.1:18765). The default read-only preview uses port `18766`. The built console runs without a separate Node process.
+After building the UI and launcher, double-click `LaunchAI.exe` in the project root. Python serves `frontend/dist` at [127.0.0.1:18765](http://127.0.0.1:18765). The default read-only preview uses port `18766`. The built console runs without a separate Node process.
 
 Start the development API from the repository root, then use a second terminal in this directory.
 

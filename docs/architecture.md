@@ -90,16 +90,15 @@ worker 内部的心跳线程约每 200ms 写 `worker.json`。原始诊断经有�
 ### 普通启动
 
 ```text
-启动AI.cmd
-  → python -m th06ai open
-  → console_lifecycle.open_console
+LaunchAI.exe
+  → 打包的 console_lifecycle.open_console
   → 核对回环服务身份／启动锁／迟到取消标记
-  → 必要时启动 web --no-browser
+  → 必要时用虚拟环境的 pythonw.exe 启动 web --no-browser
   → 等健康端点就绪
   → 打开网页
 ```
 
-`启动后端.cmd` 是兼容别名，不是另一个必须执行的启动步骤。直接 `web --no-browser` 适合前台开发终端，`open` 适合日常复用与就绪等待。
+启动器由 PyInstaller 打包，执行文件所在目录就是项目根目录。启动器和本机服务使用无终端窗口的入口，启动错误通过对话框显示。直接运行 `web --no-browser` 适合前台开发终端。
 
 服务身份包含固定服务名、项目目录散列及 preview 标记。只按端口“有东西响应”不足以证明它是本项目；改端口或关服务时都要保留身份核对。
 
@@ -111,7 +110,7 @@ worker 内部的心跳线程约每 200ms 写 `worker.json`。原始诊断经有�
 
 ### 关闭服务
 
-`关闭AI.cmd → shutdown_console → 健康身份核对 → bootstrap token → /api/server/shutdown`。服务设置关闭状态、取消迟到启动，并为活动训练请求 FINISH；监控等模式使用 STOP。服务等待所属进程退出，再关闭 HTTP/SSE。
+网页“关闭服务”和 `.\LaunchAI.exe shutdown` 都调用 `/api/server/shutdown`。启动器先核对服务身份并取得控制令牌。服务设置关闭状态，取消迟到启动，为训练请求 FINISH，为监控等模式请求 STOP。所属会话退出后关闭 HTTP/SSE。
 
 网页关闭的默认等待上限为 45 秒。若会话未退出，保留后端并给出原因，不悄悄强杀未知程序。硬件故障或 F8 走独立紧急路径，不等待模型保存。
 

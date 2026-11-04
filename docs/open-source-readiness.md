@@ -93,7 +93,7 @@ git check-ignore config.example.json .env.example frontend/package-lock.json nat
 
 ## 5. 路径可移植性
 
-源码通过自身文件位置推导 ROOT，CMD 通过 `%~dp0`，PowerShell 通过 `$PSScriptRoot` 定位。游戏路径是每个人配置中的 `game_exe`，Git 忽略真实 config，仅提交通用示例。
+源码和本机生成的 `LaunchAI.exe` 通过自身文件位置定位项目，PowerShell 使用 `$PSScriptRoot`。游戏路径由本机配置的 `game_exe` 指定，Git 只跟踪通用示例。
 
 Rust 编译器／MSVC 路径通过命令参数或环境传入，公开说明不再引用作者其他项目目录。默认端口 18765、预览 18766、Vite API 代理是可配置的服务约定，不是个人目录；改端口时同步代理及启动／关闭入口。
 
@@ -120,6 +120,6 @@ SB3 派生代码的原版权文件在 LICENSES 保留。未来若分发带依赖
 | 完整 Python 传递锁／CI | 仍待补充，不假装已有 |
 | 跨机器重装验收 | 本轮未新下载完整环境，需在独立机器验证 |
 | 稳定通关／完整 NMNB／特殊攻击全覆盖 | 未证明 |
-| 单文件 EXE／完整 wheel／远程部署 | 未验证，不作为现成发布方式 |
+| 完整 wheel／远程部署 | 尚未验证。单文件 EXE 仅作为本机启动器 |
 
 可选源码归档从审核后的提交用 `git archive` 生成即可。它不是直接 push 的必需步骤；不压缩整个工作目录，不删除本机资料来实现“干净发布”。

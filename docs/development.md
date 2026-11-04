@@ -25,7 +25,7 @@
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 notepad .\config.json
 powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
-.\启动AI.cmd
+powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
 ```
 
 `ExecutionPolicy Bypass` 仅用于这次 PowerShell 进程，不要求全局修改执行策略。先检查脚本来源，再运行。
@@ -167,6 +167,8 @@ notepad .\native_resources_calibration.json
 
 ## 4. 开发服务与端口
 
+日常双击项目根目录生成的 `LaunchAI.exe`。打包脚本用独立的 PyInstaller 环境生成无控制台窗口的 EXE，实际服务仍由项目的 `pythonw.exe` 运行。启动器只打包启动逻辑和双语提示，安装依赖与构建网页仍按前面的步骤操作。网页中的“关闭服务”会先保存训练，也可运行 `.\LaunchAI.exe shutdown`。
+
 正式本机运行：
 
 ```powershell
@@ -291,7 +293,7 @@ git push -u origin main
 
 clone → install.ps1 → 设置本机 config → build-ui.ps1 → 可选 Rust 构建 → 校准 → 明确启动会话。前端正式产物由 FastAPI 提供；不需要额外数据库或常驻 Vite。
 
-当前没有验证过的单文件 EXE、Docker、完整 wheel 静态资源打包或 Linux 实机方案。项目 ROOT 和 frontend/dist 按源码目录布局解析，单纯 `pip wheel` 不能当作已完成桌面部署。
+单文件 EXE 只提供启动入口。Docker、完整 wheel 静态资源打包和 Linux 实机方案尚未验证。项目 ROOT 和 frontend/dist 按源码目录布局解析。
 
 ### 可选归档
 

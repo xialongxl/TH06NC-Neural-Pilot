@@ -25,7 +25,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 ├── AGENTS.md                               repository instructions
 ├── config.example.json / .env.example      portable examples
 ├── install.ps1 / build-ui.ps1               setup and production build
-├── StartAI.cmd / CloseAI.cmd                local service launchers
+├── LaunchAI.exe                           generated, ignored Windows launcher
 ├── .github/                                bilingual collaboration templates
 ├── docs/                                   Chinese guides and shared indexes
 │   └── en/                                 English guides
@@ -56,6 +56,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | [__init__.py](../../th06ai/__init__.py) | Package entry with no game or GPU initialization. |
 | [__main__.py](../../th06ai/__main__.py) | CLI parsing and dispatch to open, shutdown, web, or the guard. |
 | [i18n.py](../../th06ai/i18n.py) | Shared message catalog, process locale, and archived-text localization. |
+| [paths.py](../../th06ai/paths.py) | Lightweight project root and loopback port defaults. |
 | [config.py](../../th06ai/config.py) | Repository root, ports, typed runtime and safety settings, and validation. |
 | [console_lifecycle.py](../../th06ai/console_lifecycle.py) | Service identity, port and startup lock, readiness, shutdown, and late-start cancellation. |
 | [web_console.py](../../th06ai/web_console.py) | Loopback routes, schemas, Origin and token checks, SSE, and static files. |
@@ -138,6 +139,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | `renderProfile.tsx`, `vite.config.ts` | Benchmark-only profiler, API proxy, build aliases |
 | `native/src/lib.rs`, `native/src/planner.rs` | Python ABI, owned snapshots, continuous geometry, and bounded search |
 | `tools/fetch_torch_cuda.py`, `tools/build_native.py` | Verified wheel assembly and local native build |
+| `tools/launch_console.py`, `tools/build-launcher.ps1` | Windowless launcher entry and packaging |
 | `tools/check_docs.py`, `tools/check_source.py` | Offline documentation/index validation and Git release checks |
 
 For a new UI metric, preserve raw evidence first and then decide what belongs in the display DTO. A new observation input also needs migration, optimizer, inference buffers, and trace coverage. A new attack needs version evidence, explicit geometry validity, Python/Rust parity, and separately authorized live verification. New control actions require explicit user intent and a session state transition. [Testing matrix](testing-and-performance.md)

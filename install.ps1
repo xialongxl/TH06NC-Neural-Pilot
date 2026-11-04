@@ -17,4 +17,4 @@ if (-not (Test-Path -LiteralPath 'config.json')) {
     Copy-Item -LiteralPath 'config.example.json' -Destination 'config.json'
     Write-Output 'Created config.json from the portable example. Set game_exe to your own th06nc.exe before calibration.'
 }
-Write-Output 'Installed. Launch the local web console with StartAI.cmd. Existing checkpoints and calibration remain available.'
+Write-Output 'Installed. Run build-ui.ps1 and tools/build-launcher.ps1, then open LaunchAI.exe.'

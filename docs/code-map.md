@@ -27,7 +27,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 ├── AGENTS.md
 ├── config.example.json / .env.example / .gitignore
 ├── pyproject.toml / install.ps1 / build-ui.ps1
-├── 启动AI.cmd / 启动后端.cmd / 关闭AI.cmd
+├── LaunchAI.exe               本机生成的启动和关闭入口，Git 忽略
 ├── .github/                   Issue 与 PR 模板
 ├── docs/                      说明书、交接与生成的符号索引
 ├── th06ai/                    运行时 Python 包
@@ -60,6 +60,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [__init__.py](../th06ai/__init__.py) | 包入口；避免加入游戏／GPU 初始化副作用 | 所有导入者 |
 | [__main__.py](../th06ai/__main__.py) | CLI 参数、open/shutdown/Web/guard 分流 | config、console_lifecycle、supervisor |
 | [i18n.py](../th06ai/i18n.py) | 共享消息目录、终端语言、历史消息本地化 | CLI、旧 Tk、运行状态文案 |
+| [paths.py](../th06ai/paths.py) | 项目根目录和回环端口默认值 | 配置、打包启动器 |
 | [config.py](../th06ai/config.py) | ROOT、端口、Config/SafetyConfig 与校验 | 保护、服务、worker |
 | [console_lifecycle.py](../th06ai/console_lifecycle.py) | 启动复用、身份／端口／启动锁、就绪等待、关闭协调 | CLI、HTTP、所属本机进程 |
 | [web_console.py](../th06ai/web_console.py) | 请求模型、回环路由、token/Origin、SSE、静态 UI | ConsoleService、SnapshotBroker |
@@ -160,7 +161,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | `tools/check_docs.py` | 文档链接、代码索引、配置示例、AI 上下文与模块覆盖核验 |
 | `tools/check_source.py` | 从 Git 获取实际候选／暂存清单，检查生成物、模型、个人路径；不删除或暂存文件 |
 
-根目录三个 CMD 只负责从自身路径启动 Python CLI，不能擅自增加训练命令。`install.ps1` 不覆盖已有 config；`build-ui.ps1` 用锁文件构建 UI。发布主要使用当前 Git 根目录，不需要额外复制工作树。
+用 `tools/build-launcher.ps1` 将 `tools/launch_console.py` 打包成 `LaunchAI.exe`。启动器按自身路径定位项目，入口限定为打开控制台和关闭服务。`install.ps1` 保留已有 config，`build-ui.ps1` 用锁文件构建 UI。源码直接从当前 Git 根目录发布。
 
 ## 6. 扩展功能时通常改哪里
 

@@ -40,11 +40,11 @@ flowchart TB
 
 ## Lifecycle
 
-`StartAI.cmd` calls `python -m th06ai open`. The launcher checks service identity, coordinates through a start lock, handles late cancellation, and waits for health before opening the browser. Service identity includes the service name, checkout hash, and preview flag. Use `web --no-browser` for a foreground development terminal.
+`LaunchAI.exe` bundles the console lifecycle and resolves the checkout from the executable location. It checks service identity, coordinates through a start lock, and handles late cancellation. When a backend is needed, the launcher starts the project environment's `pythonw.exe` and waits for health before opening the browser. Service identity includes the service name, checkout hash, and preview flag. Launch failures appear in a dialog. Use `web --no-browser` for a foreground development terminal.
 
 The session endpoint validates mode, minutes, checkpoint ID, setup, and current activity under a lock. It creates a run directory and invokes the guard CLI. Explicit live session launches can ask Windows to foreground the already-open game while initialization proceeds. The worker verifies focus and authorization independently. The `resume` endpoint starts a new training session with a checkpoint. F7 resumes the current in-memory session.
 
-`CloseAI.cmd` verifies the local service identity, obtains the bootstrap token, and calls the shutdown route. Shutdown cancels late starts and asks active training to FINISH. Modes such as monitoring use STOP. It waits for the owned session before closing HTTP and SSE. The web flow defaults to a 45-second wait and reports a timeout if the backend remains. F8 takes the independent immediate path.
+**Shut Down** in the web console and `.\LaunchAI.exe shutdown` use the same shutdown route. The launcher verifies service identity and obtains the bootstrap token first. Shutdown cancels late starts and asks active training to FINISH. Modes such as monitoring use STOP. It waits for the owned session before closing HTTP and SSE. The web flow defaults to a 45-second wait and reports a timeout if the backend remains. F8 takes the independent immediate path.
 
 ## One action
 

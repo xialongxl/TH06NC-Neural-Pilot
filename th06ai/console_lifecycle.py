@@ -14,7 +14,7 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from .config import ROOT, DEFAULT_CONSOLE_PORT
+from .paths import ROOT, DEFAULT_CONSOLE_PORT
 from .files import read_json
 
 
@@ -154,8 +154,8 @@ def open_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, open_br
                 if time.monotonic() >= deadline:
                     raise RuntimeError(msg('backend.the_backend_is_still_unavailable_see_0', log_path))
                 time.sleep(.1)
-        if open_browser:
-            show(url)
+        if open_browser and show(url) is False:
+            raise RuntimeError(msg('backend.could_not_open_the_browser_0', url))
     return msg('backend.console_ready_at_0_use_shut_down', url)
 
 

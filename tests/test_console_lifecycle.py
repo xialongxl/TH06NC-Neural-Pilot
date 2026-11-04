@@ -1,6 +1,7 @@
 """Shutdown must save cooperatively, drain workers and identify the right project."""
 import io
 import json
+import subprocess
 import threading
 import time
 from contextlib import contextmanager, nullcontext
@@ -155,6 +156,14 @@ def test_open_acknowledges_backend_readiness_before_returning(tmp_path):
                  show=lambda *_: pytest.fail('no-browser must be honored'))
     assert len(calls) == 1 and calls[0][1]['cwd'] == tmp_path
     assert calls[0][0][1:] == ['-m', 'th06ai', 'web', '--no-browser', '--port', '18767', '--preview']
+    assert calls[0][1]['creationflags'] == getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+
+def test_browser_launch_failure_reports_the_ready_url(tmp_path):
+    health = {'service': 'th06nc-console', 'project': project_identity(tmp_path), 'preview': False}
+    with pytest.raises(RuntimeError, match='http://127.0.0.1:18765'):
+        open_console(root=tmp_path, opener=Opener([health, {}]), listener=lambda port: 1234,
+                     lock=lambda *_: nullcontext(), show=lambda url: False)
 
 
 def test_a_queued_launch_is_cancelled_if_shutdown_won(tmp_path):

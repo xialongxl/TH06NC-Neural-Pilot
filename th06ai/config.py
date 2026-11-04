@@ -4,12 +4,9 @@ from .i18n import msg
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from .paths import DEFAULT_CONSOLE_PORT, DEFAULT_PREVIEW_PORT, ROOT
 from .planner_spec import PlanningConfig
 from .game_settings import GameSetup, parse_setup
-
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONSOLE_PORT = 18765
-DEFAULT_PREVIEW_PORT = 18766
 
 
 @dataclass(frozen=True)
