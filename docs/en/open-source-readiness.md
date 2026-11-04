@@ -39,7 +39,7 @@ The second command should have no matches. Inspect staged changes and remote own
 
 ## Portability and rights
 
-Python and the locally generated `LaunchAI.exe` resolve the project from their own locations. PowerShell uses `$PSScriptRoot`. The operator supplies `game_exe` locally and can provide a portable Rust/MSVC toolchain. Loopback ports and the Vite proxy must agree. Confirm that installation creates only missing local configuration and that calibration requires real evidence.
+`deploy.py` and the locally generated `LaunchAI.exe` resolve the project from their own locations. The operator supplies `game_exe` locally and can provide a portable Rust/MSVC toolchain. Loopback ports and the Vite proxy must agree. Confirm that installation creates only missing local configuration and that calibration requires real evidence.
 
 Inspect absolute paths, user names, GPU UUIDs, tokens, screenshots, log fields, archives, and generated assets before sharing. Keep upstream notices for derived SB3 code. Review the actual contents of any future bundled binary separately. [Disclaimer](../../DISCLAIMER.md) · [Third-party notices](../../THIRD_PARTY_NOTICES.md)
 

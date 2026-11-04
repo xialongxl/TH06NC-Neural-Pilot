@@ -343,7 +343,7 @@
     },
     {
       "path": "th06ai/console_lifecycle.py",
-      "sha256": "e7bf5506d76ce0a9545c8801b0ba90a5622917a6400e4c2ef6e3435448c07997",
+      "sha256": "03cdc3e20d750e31c854b637bf8f3f1b64c038742cc6e6fa2dd437e37b9c95f8",
       "summary": "Local console launch/exit controls; never kill a PID or touch another project.",
       "imports": [
         ".files",

@@ -74,23 +74,18 @@ git clone https://github.com/xialongxl/TH06NC-Neural-Pilot.git
 cd TH06NC-Neural-Pilot
 ```
 
-### 2. 安装 Python 依赖并设置游戏路径
+### 2. 部署并设置游戏路径
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+python deploy.py
 notepad .\config.json
 ```
 
-安装脚本会建立项目自己的 `.venv`，获取并校验官方 CUDA wheel；第一次下载体积较大。没有配置时，它会从 `config.example.json` 创建 `config.json`，已有配置则保留。
+部署脚本会安装 Python 依赖、构建网页，并生成 `LaunchAI.exe`。首次安装需要获取并校验官方 CUDA wheel，下载体积较大。部署会复用已有的 `.venv`，只在缺少配置时创建 `config.json`。可用 `python deploy.py --help` 查看分步操作。
 
 将 `game_exe` 设置为自己电脑上 **`th06nc.exe` 的完整路径**。本机配置被 Git 忽略，其他人的目录不会成为你的运行前提。项目使用 `config.json` 配置，不会自动加载 `.env`。
 
-### 3. 构建并打开控制台
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
-powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
-```
+### 3. 打开控制台
 
 构建后在资源管理器双击 `LaunchAI.exe`。它会在浏览器打开本机控制台，后台以无终端窗口的方式运行。右上角可切换英文和简体中文，选择保存在浏览器中。打开控制台本身不会开始训练。界面构建完成后，日常运行不需要常驻 Vite 或 Node.js 服务。[打开本机控制台](http://127.0.0.1:18765)
 

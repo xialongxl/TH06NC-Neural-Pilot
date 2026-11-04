@@ -93,7 +93,7 @@ git check-ignore config.example.json .env.example frontend/package-lock.json nat
 
 ## 5. 路径可移植性
 
-源码和本机生成的 `LaunchAI.exe` 通过自身文件位置定位项目，PowerShell 使用 `$PSScriptRoot`。游戏路径由本机配置的 `game_exe` 指定，Git 只跟踪通用示例。
+部署脚本和本机生成的 `LaunchAI.exe` 通过自身文件位置定位项目。游戏路径由本机配置的 `game_exe` 指定，Git 只跟踪通用示例。
 
 Rust 编译器／MSVC 路径通过命令参数或环境传入，公开说明不再引用作者其他项目目录。默认端口 18765、预览 18766、Vite API 代理是可配置的服务约定，不是个人目录；改端口时同步代理及启动／关闭入口。
 

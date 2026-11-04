@@ -21,7 +21,7 @@ npm test
 npm run build
 ```
 
-Vite proxies `/api` to loopback port `18765`. Use the root `build-ui.ps1` for an install-and-build command. The build uses local assets. Refresh the production page after rebuilding.
+Vite proxies `/api` to loopback port `18765`. Run `python deploy.py ui` from the repository root to install frontend dependencies and build. The build uses local assets. Refresh the production page after rebuilding.
 
 ## API and rendering contract
 

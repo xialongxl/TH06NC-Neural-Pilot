@@ -138,7 +138,7 @@ def open_console(*, port=DEFAULT_CONSOLE_PORT, root=ROOT, preview=False, open_br
         if not existing():
             executable = root / '.venv/Scripts/pythonw.exe'
             if not executable.is_file():
-                raise RuntimeError(msg('backend.run_install_ps1_to_install_the_training'))
+                raise RuntimeError(msg('backend.install_training_environment'))
             command = [str(executable), '-m', 'th06ai', 'web', '--no-browser', '--port', str(port)]
             if preview:
                 command.append('--preview')

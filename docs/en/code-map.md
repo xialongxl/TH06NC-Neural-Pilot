@@ -24,7 +24,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 ├── THIRD_PARTY_NOTICES.md / LICENSES/      upstream notices
 ├── AGENTS.md                               repository instructions
 ├── config.example.json / .env.example      portable examples
-├── install.ps1 / build-ui.ps1               setup and production build
+├── deploy.py                               Python deployment entry point
 ├── LaunchAI.exe                           generated, ignored Windows launcher
 ├── .github/                                bilingual collaboration templates
 ├── docs/                                   Chinese guides and shared indexes
@@ -139,7 +139,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | `renderProfile.tsx`, `vite.config.ts` | Benchmark-only profiler, API proxy, build aliases |
 | `native/src/lib.rs`, `native/src/planner.rs` | Python ABI, owned snapshots, continuous geometry, and bounded search |
 | `tools/fetch_torch_cuda.py`, `tools/build_native.py` | Verified wheel assembly and local native build |
-| `tools/launch_console.py`, `tools/build-launcher.ps1` | Windowless launcher entry and packaging |
+| `deploy.py`, `tools/launch_console.py` | Deployment and the windowless launcher entry |
 | `tools/check_docs.py`, `tools/check_source.py` | Offline documentation/index validation and Git release checks |
 
 For a new UI metric, preserve raw evidence first and then decide what belongs in the display DTO. A new observation input also needs migration, optimizer, inference buffers, and trace coverage. A new attack needs version evidence, explicit geometry validity, Python/Rust parity, and separately authorized live verification. New control actions require explicit user intent and a session state transition. [Testing matrix](testing-and-performance.md)

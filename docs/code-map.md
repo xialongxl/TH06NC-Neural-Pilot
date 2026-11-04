@@ -26,7 +26,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 ├── THIRD_PARTY_NOTICES.md / LICENSES/
 ├── AGENTS.md
 ├── config.example.json / .env.example / .gitignore
-├── pyproject.toml / install.ps1 / build-ui.ps1
+├── pyproject.toml / deploy.py   Python 部署入口
 ├── LaunchAI.exe               本机生成的启动和关闭入口，Git 忽略
 ├── .github/                   Issue 与 PR 模板
 ├── docs/                      说明书、交接与生成的符号索引
@@ -161,7 +161,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | `tools/check_docs.py` | 文档链接、代码索引、配置示例、AI 上下文与模块覆盖核验 |
 | `tools/check_source.py` | 从 Git 获取实际候选／暂存清单，检查生成物、模型、个人路径；不删除或暂存文件 |
 
-用 `tools/build-launcher.ps1` 将 `tools/launch_console.py` 打包成 `LaunchAI.exe`。启动器按自身路径定位项目，入口限定为打开控制台和关闭服务。`install.ps1` 保留已有 config，`build-ui.ps1` 用锁文件构建 UI。源码直接从当前 Git 根目录发布。
+`deploy.py` 负责安装、按锁文件构建网页和打包启动器，保留已有配置。`python deploy.py launcher` 将 `tools/launch_console.py` 打包成 `LaunchAI.exe`。启动器按自身路径定位项目，提供打开控制台和关闭服务两个操作。
 
 ## 6. 扩展功能时通常改哪里
 

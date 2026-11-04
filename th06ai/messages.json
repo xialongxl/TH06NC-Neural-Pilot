@@ -281,7 +281,7 @@
   "backend.rewards_require_advancing_game_frames_realign_the": ["奖励计算需要推进的游戏帧；计时重置时应先对齐观测", "Rewards require advancing game frames. Realign the observation after a timer reset"],
   "backend.run_complete_game_keys_released": ["运行完成，游戏按键已释放", "Run complete. Game keys released"],
   "backend.run_directory": ["记录目录：", "Run directory: "],
-  "backend.run_install_ps1_to_install_the_training": ["训练环境尚未安装，请先运行 install.ps1", "Run install.ps1 to install the training environment"],
+  "backend.install_training_environment": ["训练环境尚未安装，请先运行 python deploy.py install", "Run python deploy.py install to install the training environment"],
   "backend.run_summary": ["{0}：{1}\n记录：{2}", "{0}: {1}\nRun records: {2}"],
   "backend.running": ["运行中", "Running"],
   "backend.safety_diagnostics": ["保护与诊断", "Safety & Diagnostics"],

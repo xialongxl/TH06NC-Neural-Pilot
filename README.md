@@ -33,17 +33,17 @@ The repository ships source code. Bring your own copy of the game and calibrate 
 
 ## Quick start
 
-Clone the repository and run the install and build scripts from PowerShell.
+Clone the repository and run the Python deployment command.
 
 ```powershell
 git clone https://github.com/xialongxl/TH06NC-Neural-Pilot.git
 cd TH06NC-Neural-Pilot
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
-powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
+python deploy.py
 ```
 
-1. Open `config.json` and set `game_exe` to the full path to your `th06nc.exe`. The install script creates the file from `config.example.json` on the first run.
+The command installs the backend dependencies, builds the web UI, and creates `LaunchAI.exe`. Run `python deploy.py --help` to see the individual steps.
+
+1. Open `config.json` and set `game_exe` to the full path to your `th06nc.exe`. Deployment creates the file from `config.example.json` on the first run.
 2. Double-click `LaunchAI.exe` in File Explorer. It opens the console at [127.0.0.1:18765](http://127.0.0.1:18765) without a terminal window. Choose **English** or **简体中文** in the top bar. The browser remembers your selection.
 3. In **Safety & Diagnostics**, run the GPU check, open the game, and complete live calibration. Then verify Power, bombs, and lives and save the required local resource confirmation. [First-run calibration](docs/en/development.md#first-run-calibration)
 4. In the **Training Console**, choose your game setup, objective, and duration. Select **New model** for a fresh run or **Resume Training** to continue from a saved checkpoint. Keep the game window focused during live play.

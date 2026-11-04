@@ -22,23 +22,19 @@
 ## 2. 安装依赖与首次配置
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+python deploy.py
 notepad .\config.json
-powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
-powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
 ```
 
-`ExecutionPolicy Bypass` 仅用于这次 PowerShell 进程，不要求全局修改执行策略。先检查脚本来源，再运行。
+`deploy.py` 从脚本位置确定项目根目录，并将构建缓存保存在项目内。默认按以下顺序执行，可单独重跑某一步。
 
-`install.ps1`：
+| 命令 | 工作 |
+| --- | --- |
+| `python deploy.py install` | 创建或复用 Windows CPython 3.10 x64 虚拟环境。通过官方索引取得 CUDA wheel 和 SHA-256，校验后安装固定版本的依赖。首次创建 `config.json`。 |
+| `python deploy.py ui` | 按 npm 锁文件安装依赖，构建 `frontend/dist`。已有依赖时可加 `--skip-npm-ci`，只重建网页。 |
+| `python deploy.py launcher` | 使用隔离的 PyInstaller 环境打包无终端窗口的 `LaunchAI.exe`。也可通过 `--pyinstaller-python EXE` 指定已安装 PyInstaller 的 Python。 |
 
-1. 切到 `$PSScriptRoot`，将 uv 缓存设为本项目 `.cache/uv`。
-2. 无 `.venv` 时创建 Python 3.10 环境，已有环境不删除重建。
-3. 使用 `tools/fetch_torch_cuda.py` 从官方 PyTorch 索引找到准确 wheel、取得 SHA-256，分片下载、检查响应大小、拼接并校验。
-4. 安装 wheel 及脚本固定版本的数值、训练、Web、测试依赖。
-5. 没有 `config.json` 才从 `config.example.json` 创建，不覆盖现有本机路径、模型或校准。
-
-安装脚本不自动构建 UI、安装系统 Rust、启动训练或替用户确认校准。`build-ui.ps1` 运行 npm ci 与正式构建；公开源码默认不含 dist，需要首次构建。
+设置 `config.json` 中的 `game_exe` 后即可双击 `LaunchAI.exe`。已有配置、模型和校准记录会保留。Rust 构建和首次校准是后续独立步骤。
 
 CUDA wheel 下载体积较大，缓存会同时出现分片和拼接文件。存在已验证文件时复用；下载校验失败不能跳过校验安装。不要为“省几分钟”换用来源不明 wheel。
 
@@ -291,7 +287,7 @@ git push -u origin main
 
 ### 其他开发者部署
 
-clone → install.ps1 → 设置本机 config → build-ui.ps1 → 可选 Rust 构建 → 校准 → 明确启动会话。前端正式产物由 FastAPI 提供；不需要额外数据库或常驻 Vite。
+克隆仓库后运行 `python deploy.py`，设置本机配置，再打开 `LaunchAI.exe`。如需原生加速，可单独构建 Rust 扩展。完成校准后，由操作者启动会话。FastAPI 提供构建后的网页。
 
 单文件 EXE 只提供启动入口。Docker、完整 wheel 静态资源打包和 Linux 实机方案尚未验证。项目 ROOT 和 frontend/dist 按源码目录布局解析。
 

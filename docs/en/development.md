@@ -17,15 +17,19 @@ Run commands from the repository root unless indicated otherwise. The calibratio
 | Game | A legitimately installed copy of the supported Steam build. [Game requirements](../../README.md#requirements) |
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+python deploy.py
 notepad .\config.json
-powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
-powershell -ExecutionPolicy Bypass -File .\tools\build-launcher.ps1
 ```
 
-Review the scripts before running them. The execution-policy option applies to the PowerShell process for that invocation. The installer uses the repository root, reuses an existing `.venv`, and downloads the exact Windows CPython 3.10 CUDA wheel from the official PyTorch index. It checks part sizes and verifies the assembled wheel against its SHA-256 before installing it. An absent `config.json` is created from the example. Set `game_exe` to the full executable path on your machine.
+The Python entry point locates the checkout from its own file and stores build caches inside the project. With no arguments it runs these steps in order. Use the corresponding command to repeat an individual step.
 
-The build script runs `npm ci` and produces `frontend/dist`, which is excluded from the source checkout. npm and Cargo use their lockfiles. Python pins direct dependencies through the installer and declares them in `pyproject.toml`. Record the installed versions for repeatable results. Build caches and local setup remain in the checkout. A CPython ABI change requires a new native build.
+| Command | Work |
+| --- | --- |
+| `python deploy.py install` | Create or reuse a Windows CPython 3.10 x64 environment. Verify the exact CUDA wheel against the official PyTorch SHA-256 and install the pinned dependencies. Create `config.json` if missing. |
+| `python deploy.py ui` | Run `npm ci` with the lockfile and build `frontend/dist`. Add `--skip-npm-ci` to build with existing dependencies. |
+| `python deploy.py launcher` | Build the windowless `LaunchAI.exe` with an isolated PyInstaller environment. Pass `--pyinstaller-python EXE` to use a Python installation that already has PyInstaller. |
+
+Set `game_exe` in `config.json` to the full executable path, then double-click `LaunchAI.exe`. Deployment keeps existing configuration, checkpoints, and calibration records. Optional Rust builds and first-run calibration are separate steps. A CPython ABI change requires a new native build.
 
 `device=cpu` selects the network device. Live sessions still use the independent NVIDIA watchdog. Offline CPU tests use fixtures.
 
