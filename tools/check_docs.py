@@ -5,6 +5,7 @@ import argparse
 import ast
 import hashlib
 import json
+from os.path import relpath
 from pathlib import Path
 import re
 from urllib.parse import unquote, urlsplit
@@ -73,10 +74,15 @@ def anchors(source):
     return result
 
 
-def documents():
-    names = ("README.md", "README.zh-CN.md", "AGENTS.md", "CONTRIBUTING.md", "DISCLAIMER.md", "THIRD_PARTY_NOTICES.md",
-             "frontend/README.md", "native/README.md")
-    return [ROOT / name for name in names] + sorted((ROOT / "docs").glob("*.md")) + sorted((ROOT / ".github").rglob("*.md"))
+def document_pairs():
+    entry_pages = ("README.md", "CONTRIBUTING.md", "DISCLAIMER.md", "THIRD_PARTY_NOTICES.md",
+                   "frontend/README.md", "native/README.md")
+    pairs = [(ROOT / name, (ROOT / name).with_suffix(".zh-CN.md")) for name in entry_pages]
+    docs = ROOT / "docs"
+    pairs.append((docs / "en/maintainer-instructions.md", ROOT / "AGENTS.md"))
+    names = {p.name for p in docs.glob("*.md")}
+    names.update(p.name for p in (docs / "en").glob("*.md") if p.name != "maintainer-instructions.md")
+    return pairs + [(docs / "en" / name, docs / name) for name in sorted(names)]
 
 
 def validate():
@@ -88,9 +94,18 @@ def validate():
             errors.append("code-index.json is stale: run --update-index and review the diff")
     except (OSError, ValueError) as error:
         errors.append(f"code-index.json: {error}")
-    for path in documents():
+    counterparts = {}
+    for english, chinese in document_pairs():
+        counterparts[english] = chinese
+        counterparts[chinese] = english
+    docs = sorted(counterparts) + sorted((ROOT / ".github").rglob("*.md"))
+    for path in docs:
         try:
             text = prose(path.read_text(encoding="utf-8-sig"))
+            if path in counterparts:
+                alternate = Path(relpath(counterparts[path], path.parent)).as_posix()
+                if f"]({alternate})" not in "\n".join(text.splitlines()[:5]):
+                    errors.append(f"{path.relative_to(ROOT)}: missing language switch to {alternate}")
             for target in re.findall(r"!?\[[^\]\n]*\]\(([^\)\n]+)\)", text):
                 links += 1
                 target = target.strip().strip("<>")
@@ -128,10 +143,11 @@ def validate():
         grouped = {p for paths in context["test_groups"].values() for p in paths}
         for path in set(expected["tests"]) - grouped:
             errors.append(f"AI context missing test-group assignment: {path}")
-        code_map = (ROOT / "docs/code-map.md").read_text(encoding="utf-8")
-        for path in module_map:
-            if "../" + path not in code_map:
-                errors.append(f"Code map missing Python module: {path}")
+        for map_name, module_prefix in (("docs/code-map.md", "../"), ("docs/en/code-map.md", "../../")):
+            code_map = (ROOT / map_name).read_text(encoding="utf-8")
+            for path in module_map:
+                if f"]({module_prefix}{path})" not in code_map:
+                    errors.append(f"{map_name}: missing Python module {path}")
         example = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
         if example["episode_seconds"] != 0 or example["safety"]["temperature_limit_c"] != 70:
             errors.append("Review documented sample defaults: episode_seconds / core temperature")
@@ -142,7 +158,7 @@ def validate():
                 errors.append(f"Missing release document: {path.name}")
     except (OSError, ValueError, KeyError) as error:
         errors.append(f"Context/config: {error}")
-    return {"ok": not errors, "documents": len(documents()), "local_and_external_links_parsed": links,
+    return {"ok": not errors, "documents": len(docs), "local_and_external_links_parsed": links,
             "python_modules_indexed": len(expected["modules"]), "test_modules_indexed": len(expected["tests"]),
             "external_links_fetched": False, "game_or_gpu_imports": False, "errors": errors}
 

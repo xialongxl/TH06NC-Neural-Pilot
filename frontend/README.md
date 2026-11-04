@@ -1,55 +1,51 @@
-# TH06NC-Neural-Pilot Web 控制台
+# Web console
 
-React 19.3.1 / TypeScript 7.0.2 / Vite 8.3.5，依赖由 `package-lock.json` 固定。前端负责显示和提交明确的操作请求；游戏读取、规划、PPO 与硬件保护都在 Python 进程中。
+English · [简体中文](README.zh-CN.md)
 
-正常使用双击项目根目录的 `启动AI.cmd`。构建后的 `dist` 由 Python 本机服务直接提供，运行时不需要 Node.js 或 Vite 服务。默认地址为 `http://127.0.0.1:18765`，只读预览为 `18766`；它们是可配置的本机端口，不依赖任何其他项目。
+The React and TypeScript console displays session state and submits explicit operator commands. Python owns game capture, planning, PPO, and protection. The repository pins frontend dependencies in `package-lock.json`.
 
-开发时先在项目根目录启动后端：
+## Run and develop
+
+After the production build, run `StartAI.cmd` from the project root. Python serves `frontend/dist` at [127.0.0.1:18765](http://127.0.0.1:18765). The default read-only preview uses port `18766`. The built console runs without a separate Node process.
+
+Start the development API from the repository root, then use a second terminal in this directory.
 
 ```powershell
-.venv\Scripts\python.exe -m th06ai web --no-browser
+.\.venv\Scripts\python.exe -m th06ai web --no-browser
 ```
-
-然后在本目录运行：
 
 ```powershell
 npm ci
 npm run dev
-```
-
-Vite 的 `/api` 代理指向 `127.0.0.1:18765`。首次引导请求只获取控制令牌和协议版本，完整状态由 SSE 首帧提供，断线自动重连。模型选择通过后端持久化，刷新页面不会丢失正在运行的会话或启动新会话。
-
-```powershell
 npm test
 npm run build
 ```
 
-或在项目根目录运行 `build-ui.ps1`。构建产物在 `dist`，不得引用外部 CDN。修改源码后需要重新构建；已打开的正式页面刷新后加载新版本。
+Vite proxies `/api` to loopback port `18765`. Use the root `build-ui.ps1` for an install-and-build command. The build uses local assets. Refresh the production page after rebuilding.
 
-## 控制契约
+## API and rendering contract
 
-- `GET /api/bootstrap?state=false`：控制令牌与协议版本；只读，不创建训练或 GPU 会话。不带参数仍保留旧版初始状态契约。
-- `GET /api/events?protocol=2&hidden=false`：共享采样、JSON 增量 SSE；可见页最多 2 Hz 更新，无变化时每 3 秒发小心跳。所有订阅页隐藏时降为 0.2 Hz，没有订阅时停止界面采样。默认 `protocol=1` 保留旧版完整状态流。
-- `GET /api/state`：完整原始诊断状态。界面 DTO 只传显示字段，去掉内部心跳时间戳，不影响原始诊断。
-- `GET /api/logs`：有长度限制的日志尾部，支持 ETag 和 304；页面隐藏时停止日志轮询。
-- `POST /api/models/select`：选择已有检查点，传 `model_id`。
-- `POST /api/sessions`：明确启动继续训练、新建训练、试玩、评估、自检、监控或校准。
-- `POST /api/session/pause`：传布尔 `paused`，暂停/恢复同一会话。
-- `POST /api/session/finish`：保存并结束。
-- `POST /api/session/stop`：请求独立保护进程紧急停止。
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/bootstrap?state=false` | Fetch the console token and protocol. Omitting the query preserves the legacy initial-state response. |
+| `GET /api/events?protocol=2&hidden=false` | Subscribe to the shared display stream. Protocol 1 remains available for legacy clients. |
+| `GET /api/state` | Read the full diagnostic state. |
+| `GET /api/logs` | Fetch a bounded log tail with ETag and 304 support. Hidden pages suspend log polling. |
+| `POST /api/models/select` | Persist the selected checkpoint ID. |
+| `POST /api/sessions` | Explicitly start a named session mode. |
+| `POST /api/session/pause` | Pause or resume the current session using `paused`. |
+| `POST /api/session/finish` | Save and finish training. |
+| `POST /api/session/stop` | Ask the independent guard to stop the owned session. |
+| `POST /api/game/focus`, `POST /api/session/focus` | Activate the configured game or ask the active worker to retry foreground activation. |
 
-所有 POST 需要同源 `X-Console-Token`，不接受任意命令、任意模型路径或安全阈值修改。默认服务只绑定回环地址，不对局域网开放。浏览器和后端可独立重开；F7/F8 由原保护进程全局处理，前端不重复切换 F7。
+Mutations use a same-origin `X-Console-Token` and validated requests. The service is designed for loopback. F7/F8 belong to the protection process, so the browser sends only the explicit operations selected in the UI.
 
-协议 v2 的每次新连接都以 `snapshot` 完整同步开始。后续 `delta` 带基础版本、目标版本、字段替换/删除，以及温度曲线的追加游标；曲线最多 180 点，会话变化或游标失效时重置。慢客户端合并到最新状态，不积压逐帧队列；版本不连续时重连取完整快照。模型和配置仅变化时重发，前端保留未变化对象引用并跳过对应组件渲染。隐藏页面只维护最新状态，恢复可见后同步一次。独立保护采样始终为 250 ms，与界面推送频率无关。
+Every v2 connection starts with `snapshot`. Subsequent `delta` events include a base and target revision, changes and removals, and an append cursor for up to 180 temperature points. The client reconnects when it loses its baseline. Slow subscribers converge on the latest state. Visible subscriptions update at most 2 Hz with an idle heartbeat every three seconds. When every subscriber is hidden, the shared rate falls to 0.2 Hz. Sampling stops when the last subscriber leaves. GPU protection continues to poll independently every 250 ms.
 
-## 界面约定
+## UI behavior
 
-训练页与模型库提供难度、自机、完整流程／Practice 和起始关卡选择；以 `game_setup` 对象随会话请求提交，下次会话生效。实际状态来自 `game_settings`，未知值保持待识别，Practice 选关高亮明确标注为菜单选择。规则和模型迁移见[游戏设置](../docs/game-settings.md)。
+Session settings use `game_setup`. The console displays observed identity separately from `game_settings`. The practice-stage highlight is a menu selection. Unknown data remains unknown. Archived GPU samples are labeled as historical, and disconnected state loses its live marker. The current session survives refreshes and browser closure. [Game setup](../docs/en/game-settings.md)
 
-历史显卡读数明确显示为上次会话采样；后台断线不继续标记为实时监控。训练、暂停恢复、保存结束和紧急停止分别对应独立操作。关闭或刷新浏览器不结束训练，使用暂停/保存结束/F8 操作当前会话。
+Latency diagnostics separate observation-to-send time, policy work, input-call time, and the first game-input match observed by the reader. P95 uses at most 64 recent valid samples. A held-key action can have no new send event. Detailed timestamps remain in raw diagnostics.
 
-空状态不使用示例数值；未知数据显示为 `—`。模型库支持搜索、兼容性过滤、详情与选择。错误保持可见，成功通知自动关闭；原生对话框提供焦点管理和 Escape 退出。界面支持窄窗口、键盘焦点和减少动画偏好。
-
-输入响应位于保护与诊断页：展示观测到发键、近期 P95、策略推理及动作传回、按键发送调用和游戏输入采样。没有新记录时显示未知，持续保持原按键不冒充新发送。P95 统计最近最多 64 次有效样本；游戏输入匹配是第一次被采样观察到的时刻，不是精确生效时刻。内部纳秒时间戳只保留在原始诊断/动作日志，不反复推给界面。
-
-`POST /api/game/focus` 在没有会话时仅激活配置游戏窗口；活动会话中委托工作进程处理。`POST /api/session/focus` 只提交当前会话的前台重试请求。两者沿用同源控制令牌，不启动训练。游戏模式的启动请求自动发起一次激活，训练/试玩/评估统一支持暂停，保存权重仍只适用于训练。
+Components preserve unchanged state references to avoid redundant renders. Use full phrases from the shared translation catalog. The top-bar language selector is remembered locally and updates the current view. [Localization guide](../docs/en/localization.md)

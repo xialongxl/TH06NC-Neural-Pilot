@@ -2,11 +2,13 @@
 
 [English](README.md) · 简体中文
 
+[文档索引](docs/README.md)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform: Windows 10/11 x64](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078D4?style=flat-square)](docs/development.md)
 [![Python: 3.10](https://img.shields.io/badge/Python-3.10-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![PyTorch: CUDA](https://img.shields.io/badge/PyTorch-CUDA-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](docs/core-logic.md)
-[![Rust: optional](https://img.shields.io/badge/Rust-optional-DEA584?style=flat-square&logo=rust&logoColor=black)](native/README.md)
+[![Rust: optional](https://img.shields.io/badge/Rust-optional-DEA584?style=flat-square&logo=rust&logoColor=black)](native/README.zh-CN.md)
 [![Status: experimental](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)](#使用前需要知道)
 
 **探索如何让 AI 在弹幕中生存、收集资源，并有效地推进关卡。**
@@ -110,7 +112,7 @@ powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
 
 启动前在“游戏设置”选择完整流程或 Practice、难度与自机。Practice 可以指定已解锁关卡，完整流程从首关开始，Extra 使用游戏独立入口；选择在下次会话生效，运行中的设置以实际读取为准。
 
-需要原生加速时，按 [Rust 构建说明](native/README.md)安装扩展。其他配置、开发模式和命令行用法见[开发者指南](docs/development.md)。
+需要原生加速时，按 [Rust 构建说明](native/README.zh-CN.md)安装扩展。其他配置、开发模式和命令行用法见[开发者指南](docs/development.md)。
 
 ### 第一次运行遇到问题
 
@@ -168,12 +170,12 @@ flowchart LR
 
 | 部分 | 实现 | 入口 |
 | --- | --- | --- |
-| 控制台 | React、TypeScript、Vite | [frontend/](frontend/README.md) |
+| 控制台 | React、TypeScript、Vite | [frontend/](frontend/README.zh-CN.md) |
 | 本机服务 | FastAPI、REST、增量 SSE | [web_console.py](th06ai/web_console.py) |
 | 游戏接入 | 版本固定的只读状态与 Windows 输入 | [native.py](th06ai/native.py)、[environment.py](th06ai/environment.py) |
 | 在线决策 | 滚动搜索、集合编码器、联合策略 | [planning.py](th06ai/planning.py)、[policy.py](th06ai/policy.py) |
 | 学习与模型 | PyTorch、Stable-Baselines3、Gymnasium | [learning.py](th06ai/learning.py) |
-| 原生加速 | Rust、PyO3 | [native/](native/README.md) |
+| 原生加速 | Rust、PyO3 | [native/](native/README.zh-CN.md) |
 | 独立保护 | NVML、共享授权、Windows Job Object | [supervisor.py](th06ai/supervisor.py) |
 
 完整目录、模块关系和阅读顺序见[代码地图](docs/code-map.md)。依赖版本由安装脚本及各锁文件记录。
@@ -214,7 +216,7 @@ flowchart LR
 欢迎提交可复现的问题、脱敏的几何反例、独立评估记录、代码和文档改进。
 
 - 遇到问题：在 [Issues](https://github.com/xialongxl/TH06NC-Neural-Pilot/issues) 描述环境、步骤、预期与实际结果。
-- 准备修改：先看 [CONTRIBUTING.md](CONTRIBUTING.md)，按变更领域选择测试，再提交 [Pull Request](https://github.com/xialongxl/TH06NC-Neural-Pilot/pulls)。
+- 准备修改：先看 [CONTRIBUTING.md](CONTRIBUTING.zh-CN.md)，按变更领域选择测试，再提交 [Pull Request](https://github.com/xialongxl/TH06NC-Neural-Pilot/pulls)。
 - 使用 AI 辅助开发：同时阅读 [AGENTS.md](AGENTS.md)，保留实测证据和模型兼容性，明确哪些内容尚未验证。
 
 提交前可以运行：
@@ -230,7 +232,7 @@ flowchart LR
 
 作者：[xialongxl](https://github.com/xialongxl)。这是个人维护的非官方研究项目。
 
-代码采用 [MIT License](LICENSE)。项目倡导强化学习交流与非商业单机游戏探索，这一用途倡议不构成 MIT 的附加限制。原作游戏及第三方内容的权利独立适用，相关使用须遵守对应规则；具体说明见[免责声明](DISCLAIMER.md)。
+代码采用 [MIT License](LICENSE)。项目倡导强化学习交流与非商业单机游戏探索，这一用途倡议不构成 MIT 的附加限制。原作游戏及第三方内容的权利独立适用，相关使用须遵守对应规则；具体说明见[免责声明](DISCLAIMER.zh-CN.md)。
 
 ## 致谢
 
@@ -245,4 +247,4 @@ flowchart LR
 
 感谢 **PyTorch、Stable-Baselines3、Gymnasium、NumPy、React、FastAPI、PyO3** 等开源项目，为模型训练、环境接口、数值计算、控制台和原生扩展提供基础。
 
-本项目使用和参考的第三方代码及许可记录在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。也感谢每一份帮助复现问题、检验假设和改善实现的贡献。
+本项目使用和参考的第三方代码及许可记录在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.zh-CN.md)。也感谢每一份帮助复现问题、检验假设和改善实现的贡献。

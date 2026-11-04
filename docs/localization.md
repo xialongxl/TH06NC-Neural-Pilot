@@ -1,17 +1,18 @@
-# 本地化 / Localization
+# 本地化
 
-[English README](../README.md) · [中文 README](../README.zh-CN.md)
+[English](en/localization.md) · 简体中文
 
-The web console uses the browser language on the first visit. The language selector in the top bar stores the choice for this browser and applies it to the current view. The CLI and legacy desktop console use the system language. Set `TH06AI_LANG` to `en` or `zh-CN` to select a language for a terminal and its child processes.
+网页控制台首次打开时采用浏览器首选的受支持语言。右上角的语言选项会即时更新当前页面，并在该浏览器中记住选择。命令行与旧桌面控制台默认采用系统语言。可在启动进程的终端设置 `TH06AI_LANG=zh-CN` 或 `TH06AI_LANG=en`，该进程及其子进程会使用指定语言。
 
-网页首次打开时采用浏览器语言。右上角语言选项会即时更新当前页面，并记住选择。命令行与旧桌面控制台采用系统语言，也可用 `TH06AI_LANG` 指定。
+## 新增或修改文案
 
-## Adding a message
+1. 在[共享文案目录](../th06ai/messages.json)中添加描述用途的键。每条文案依次包含简体中文和英文。两种语言使用相同的编号占位符，位置可以随语序调整。
+2. React 组件用 `useI18n()` 提供的 `t(key, ...values)`。数值与单位、带参数的提示都尽量使用完整文案，给翻译留出调整语序的空间。
+3. Python 的持久化会话消息和 API v2 消息使用 `msg(key, ...values)`。浏览器在显示时翻译能识别的新消息和历史消息。终端及旧桌面界面使用 `ui_text`。
+4. 操作 ID、模式、协议字段、模型文件名和路径独立于语言。项目提示可以包裹外部错误并保留错误内容。复制原始日志会得到原文。
 
-1. Add a descriptive key to [messages.json](../th06ai/messages.json). Each value is a pair in the order Simplified Chinese, English. Keep numbered placeholders such as `{0}` in both languages. A translation may reorder the placeholders.
-2. Use `t(key, ...values)` from `useI18n()` in a React component. Keep full phrases together so the translator can choose the word order. For example, use one message for a limit and its unit.
-3. In Python, use `msg(key, ...values)` for session and worker messages that are persisted or sent in API v2. Use `ui_text` for terminal and legacy console labels. The existing saved text remains readable in Chinese and the browser translates known messages at display time, including messages from older runs.
+修改后运行前端测试，并分别核对两种语言的 `python -m th06ai --help` 输出。命令行帮助可离线检查。构建和测试命令见[前端说明](../frontend/README.zh-CN.md)。
 
-Keep action IDs, modes, state keys, filenames, and protocol fields independent of the display language. Arbitrary OS or third-party errors and copied raw logs keep their original text. The localization layer can translate the project's surrounding message and preserve a path, number, or external error passed as an argument.
+## 维护双语文档
 
-Use the frontend tests and `python tools/check_docs.py --update-index` after changes. The CLI help can be checked without a game session by running `python -m th06ai --help` in each language.
+项目首页和组件入口默认使用英文。英文技术文档位于 `docs/en/`，原有中文技术文档保留在 `docs/`。每对文档顶部互相链接，正文优先链接到同语言版本。命令、默认值和行为约束发生变化时同步更新两种语言，再运行 `python tools/check_docs.py`。

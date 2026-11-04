@@ -1,6 +1,8 @@
 # 架构与执行边界
 
-本文依据仓库源码，而不是预期功能。入口见[README](../README.md)，字段契约见[data-contracts.md](data-contracts.md)。
+[English](en/architecture.md) · 简体中文
+
+本文依据仓库源码，而不是预期功能。入口见[README](../README.zh-CN.md)，字段契约见[data-contracts.md](data-contracts.md)。
 
 ## 1. 四条链路
 

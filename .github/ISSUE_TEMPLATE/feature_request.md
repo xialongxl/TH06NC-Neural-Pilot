@@ -1,17 +1,21 @@
 ---
-name: 功能建议
-about: 说明要解决的用户问题和验收标准
+name: "Feature request / 功能建议"
+about: "Describe a user problem and an acceptance criterion / 说明用户问题与验收标准"
 title: ''
 labels: ''
 assignees: ''
 ---
 
-## 用户问题
+Use English or Simplified Chinese. 可以使用英文或简体中文。
 
-## 希望的行为
+## User problem / 用户问题
 
-## 可复现的场景或衡量方式
+## Desired behavior / 希望的行为
 
-## 约束与兼容性
+## Reproducible scenario or acceptance criteria / 复现场景或验收标准
 
-是否涉及游戏版本、模型格式、保护规则、数据公开或 UI 协议？
+## Constraints and compatibility / 约束与兼容性
+
+Mention any impact on supported game builds, checkpoint formats, safety, data publication, or the UI protocol.
+
+请说明是否涉及游戏版本、检查点格式、保护、数据公开或界面协议。

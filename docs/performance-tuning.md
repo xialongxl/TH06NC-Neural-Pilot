@@ -1,5 +1,7 @@
 # 控制延迟、诊断与保存配置
 
+[English](en/performance-tuning.md) · 简体中文
+
 本页说明 2026-11-03 实施的优化、兼容边界与复核方式。优化代码与离线组件基准不等于已验证整条实机链低于 2ms；真实测试必须另行获得操作者授权。
 
 ## 已实现的路径
@@ -84,6 +86,6 @@
 
 观测仍为 v9、策略 v2、规划 v7、动作计时 v3；奖励为 v9、输入诊断为 v3、原生 ABI 为 v3、UI SSE 为 v2。没有为了本次优化删除模型或重置优化器。
 
-重新构建 Rust 使用 [原生构建说明](../native/README.md)。ABI v3 安装在 native_runtime，首次构建不会覆盖旧 v2 会话已映射的 DLL；后续覆盖同一已加载 v3 DLL 前仍需结束相应进程。正在暂停/运行的 worker 不会热加载新源码；应由操作者保存并结束会话，再正常关闭重开控制台。
+重新构建 Rust 使用 [原生构建说明](../native/README.zh-CN.md)。ABI v3 安装在 native_runtime，首次构建不会覆盖旧 v2 会话已映射的 DLL；后续覆盖同一已加载 v3 DLL 前仍需结束相应进程。正在暂停/运行的 worker 不会热加载新源码；应由操作者保存并结束会话，再正常关闭重开控制台。
 
 离线回归与指标口径见[测试与性能](testing-and-performance.md)。重点覆盖 `test_optimization_contracts.py`、`test_state_capture.py`、`test_observation_traces.py`、`test_latency_profiler.py`、`test_native_search.py`、`test_rust_backend.py`、`test_model_store.py` 和控制台并发测试。CPU 输出一致不能代替新 CUDA 路径的实机验证。

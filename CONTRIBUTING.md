@@ -1,78 +1,51 @@
-# 贡献指南
+# Contributing
 
-欢迎向 **TH06NC-Neural-Pilot** 提交问题、实验记录、文档或代码。维护者署名为xialongxl。正式仓库为 [xialongxl/TH06NC-Neural-Pilot](https://github.com/xialongxl/TH06NC-Neural-Pilot)，请使用该仓库的 [Issues](https://github.com/xialongxl/TH06NC-Neural-Pilot/issues) 和 [Pull Requests](https://github.com/xialongxl/TH06NC-Neural-Pilot/pulls)。
+English · [简体中文](CONTRIBUTING.zh-CN.md)
 
-先读 [README](README.md)、[开发指南](docs/development.md)、[易错点](docs/gotchas.md)。代码贡献按项目 [MIT License](LICENSE) 提交，第三方来源仍保留原许可；提交者需有权贡献相应内容。当前不要求额外 CLA。
+Reports, reproducible measurements, documentation, and code are welcome. Contributions to TH06NC-Neural-Pilot are submitted under the repository's [MIT license](LICENSE). Preserve upstream notices and submit only material you have permission to share. The project currently uses no separate contributor agreement.
 
-## 提交 Issue
+Read the [development guide](docs/en/development.md) and [implementation pitfalls](docs/en/gotchas.md) before changing behavior. Use the project's [Issues](https://github.com/xialongxl/TH06NC-Neural-Pilot/issues) and [Pull Requests](https://github.com/xialongxl/TH06NC-Neural-Pilot/pulls).
 
-### 缺陷报告
+## Report a bug
 
-请尽量包含：
+Give the smallest reproducible sequence from a known initial state, along with the expected and observed results. Include the details that apply.
 
-1. 项目版本／提交、Windows 与 Python 版本、是否有 Rust 扩展。
-2. 游戏 Steam build、EXE SHA-256、自机／难度／关卡、当前场景。
-3. 模式：训练、试玩、评估、校准、监控、只读剖析或 UI 预览。
-4. 从明确初始状态开始的最少复现步骤、预期与实际结果。
-5. 对应 `worker.log` 异常栈、`status/result` 原因、必要的动作／死亡编号；避免只发一张被截断的状态条。
-6. 若涉及性能，给出指标范围、P50/P95/P99、样本数和负载。标明是否真实发键，不用组件耗时冒充实机总延迟。
+- The project commit, Windows and Python versions, GPU if relevant, and whether the native extension was in use.
+- The Steam build and executable SHA-256, difficulty, shot type, stage, and game scene.
+- The operation you were running, such as training, inference, evaluation, calibration, or read-only profiling.
+- The relevant status or result reason, a worker stack trace, and action or death IDs when behavior is involved.
+- For timing reports, the scope and endpoints of the measurement, workload, sample count, and P50/P95/P99. Identify whether real input was sent.
 
-不要公开整个 `runs` 或校准目录。分享前移除用户名、绝对路径、GPU UUID、控制令牌及不相关内容；不要上传 `.venv`、游戏 EXE／资源、CUDA wheel、模型 ZIP 或未确认可公开的截图。模型／数据确有必要时先在 Issue 中讨论最小公开夹具。
+Share a minimal sanitized extract. Remove personal paths, account names, GPU UUIDs, console tokens, and unrelated information. Keep game files, model archives, calibration records, CUDA wheels, dependency trees, and entire run directories out of reports. Discuss a minimal fixture in the Issue if one is needed.
 
-### 功能建议
+## Propose a change
 
-描述用户问题、预期交互、成功标准和约束，提供可复现的场景或指标。请区分“增加奖励”“改变感知”“改变控制时序”“修改显示”，避免用一个总奖励数字证明所有行为都变好。
+Describe the user problem, expected interaction, and acceptance criteria. Give a scenario or metric another developer could reproduce. Separate changes to rewards, perception, timing, and presentation so their effects can be measured independently.
 
-### 需要谨慎公开的问题
+For suspected token exposure, arbitrary command or path execution, or personal data leaks, use the host's private reporting feature if available. Otherwise, open a brief public request for a private channel and reserve the sensitive details for that channel.
 
-若问题涉及控制令牌、任意命令／路径执行或可能暴露个人数据，避免在公开 Issue 直接附可利用细节。维护者尚未配置专用安全邮箱；使用托管平台提供的私密报告功能（若已启用），或先只提出需要私密沟通。不要向未声明的邮箱发送材料。
+## Open a pull request
 
-## 开发流程
-
-1. Fork 实际仓库，从主分支创建用途明确的分支。
-2. 按开发指南在项目自己的环境里安装依赖，不修改其他项目环境。
-3. 一次 PR 聚焦一个可评审的问题，先做最小复现，再改实现。
-4. 运行相关测试；本地资料不足以完成实机验证时明确说明，不编造结果。
-5. 更新受影响的契约、文档和符号索引，检查发布过滤。
-6. 提交 PR，说明问题、最终行为、实现理由、验证和已知限制。
+1. Fork the repository and branch from `main`.
+2. Reproduce the issue and keep the change focused. Follow the existing Python types and dataclasses, TypeScript components and state reconciliation, and Rust ownership boundaries.
+3. Add regression coverage for the failure or contract your change affects. Use the [test matrix](docs/en/testing-and-performance.md) to choose the right checks.
+4. Update the affected contracts and both language editions. Rebuild the generated symbol index after source changes.
+5. Describe the trigger, resulting behavior, compatibility and migration impact, and actual test results. Include any unverified scenarios. Sanitize screenshots and preserve upstream attribution.
 
 ```powershell
-# 在自己的检出目录；分支名称仅示例
 git switch -c fix/describe-the-problem
 .\.venv\Scripts\python.exe tools\check_docs.py --update-index
-.\.venv\Scripts\python.exe tools\check_docs.py
 .\.venv\Scripts\python.exe tools\check_source.py
 ```
 
-不要直接把运行中的 worker 热替换为新代码。先保存并结束当前会话，再让新会话加载；硬件紧急情况走 F8。修改源码本身不代表有权启动真实训练或接管用户游戏。
-
-## PR 内容
-
-- 标题描述最终解决的问题，不写“修了点东西”。
-- 给出具体触发条件、修改后的行为及会受影响的入口。
-- 说明有无观测／奖励／策略／规划／原生 ABI／UI 协议变化，以及兼容迁移方案。
-- 列出实际执行的验证命令和结果；未执行的原因直接说明。
-- 有第三方代码时保留来源及版权。有 UI 变化时附不含私人数据的截图。
-- 不提交缓存、依赖目录、编译中间产物、个人配置、校准凭据、日志和模型 ZIP。
-
-仓库附有 Issue／PR 模板；它们帮助收集信息，不应为了填表而伪造不存在的硬件或实机证据。
-
-## 修改领域与验证
-
-| 改动 | 至少核对 |
+| Change area | Minimum review |
 | --- | --- |
-| 文档／配置示例 | `tools/check_docs.py`、路径与模板可移植性 |
-| UI／SSE | 前端测试与构建、`test_console_stream.py`、`test_web_console.py` |
-| 采集／场景 | 状态读取、游戏阶段、激光／本体、空弹幕与跨帧回归 |
-| 规划／Rust | Python 参考差分、时序回退死亡夹具、完整弹池、并发和形状校验 |
-| 策略／奖励 | 动作与 log_prob 一致性、B 条件先验、资源循环、死亡势函数 |
-| 模型迁移／保存 | 原文件及优化器保留、哈希、随机模型不保存、部分评估 |
-| 保护／暂停／生命周期 | 独立故障注入、F8、授权过期、Job、F7、关闭与迟到启动 |
+| Documentation or sample configuration | Links, portable paths, examples, and the docs checker |
+| UI or SSE | Frontend tests and build, `test_console_stream.py`, `test_web_console.py` |
+| Capture or phases | Empty pools, cross-tick reads, phases, enemies, and lasers |
+| Planning or Rust | Python parity, switch-window fallback, full pools, shapes, and concurrency |
+| Policy or rewards | Executed action and log probability, conditional bomb prior, resource loops, and death boundaries |
+| Models or saves | Original files and optimizer history, hashes, unsaved runs, and partial evaluations |
+| Safety or lifecycle | Fault injection, F7/F8, lease expiry, owned Job, shutdown, and late startup |
 
-具体命令见[测试与性能](docs/testing-and-performance.md)。不要求为排版修改重新跑长训练，也不接受用长训练掩盖确定性的逻辑缺陷。
-
-## 代码与讨论约定
-
-Python 沿用当前小模块和类型／dataclass 风格，前端沿用 TypeScript 与现有组件／状态归并方式，Rust 明确拥有权及线程边界。新增模块优先保持职责单一，别为了界面改动把学习逻辑搬到浏览器。
-
-评论指出行为、证据和影响。AI 辅助贡献欢迎提交，但作者需核对生成内容，不能只引用另一个 AI 的结论作为性能、通关或兼容性证据。
+A running worker keeps the code it already loaded. Save and finish before starting a session with new code. F8 remains the emergency path. Live training, calibration, and game input require the operator's explicit choice. AI-assisted contributions are welcome when the contributor verifies the result and reports concrete evidence.

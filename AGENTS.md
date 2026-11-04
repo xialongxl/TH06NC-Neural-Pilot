@@ -1,5 +1,7 @@
 # 面向代码助手的项目约定
 
+[English](docs/en/maintainer-instructions.md) · 简体中文
+
 适用于本仓库。用户明确指令优先；本文件不授权自动启动训练或接管游戏。
 
 ## 接手顺序

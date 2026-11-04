@@ -1,5 +1,7 @@
 # 开源准备、直接推送与发布内容
 
+[English](en/open-source-readiness.md) · 简体中文
+
 项目名 **TH06NC-Neural-Pilot**，作者 **xialongxl**，标准 **MIT**。主要分发方式是当前根目录直接作为 Git 仓库推送，不需要手动复制“干净版”，也不需要先清理本机依赖和模型。
 
 ## 1. 这次准备包括什么
@@ -99,7 +101,7 @@ Rust 编译器／MSVC 路径通过命令参数或环境传入，公开说明不�
 
 ## 6. 内容与权利审查
 
-按 [DISCLAIMER](../DISCLAIMER.md) 区分项目 MIT、非商业研究倡议、原作及第三方权利。没有“MIT 严禁商用”附加条款，也不声称工具已获原作方专项授权。
+按 [DISCLAIMER](../DISCLAIMER.zh-CN.md) 区分项目 MIT、非商业研究倡议、原作及第三方权利。没有“MIT 严禁商用”附加条款，也不声称工具已获原作方专项授权。
 
 公开前扫描绝对路径、用户名、GPU UUID、控制令牌、账号、下载鉴权、个人截图与输出；尤其注意 JSON/NPZ metadata、日志和生成前端 sourcemap。不能只按文件扩展名判断是否安全。
 

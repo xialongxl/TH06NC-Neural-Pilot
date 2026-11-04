@@ -1,5 +1,7 @@
 # 数据、格式与版本契约
 
+[English](en/data-contracts.md) · 简体中文
+
 此文的表格用于解释源码，不替代版本常量、NumPy dtype 或读写实现。修改契约时同步更新[代码索引](code-index.json)、迁移和相关测试。
 
 ## 1. 版本是相互独立的

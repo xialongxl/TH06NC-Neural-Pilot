@@ -1,5 +1,7 @@
 # 开发、安装、配置与本机部署
 
+[English](en/development.md) · 简体中文
+
 以下命令均从项目根目录执行，另有说明除外。它们是操作指南，不代表阅读文档会获得接管游戏的授权。实机命令会清楚标注是否使用 GPU、按键和学习更新。
 
 ## 1. 环境基线
@@ -258,7 +260,7 @@ Vite `/api` 代理固定默认后端 18765。后端 CLI 改端口时要同步代
 .\.venv\Scripts\python.exe tools\build_native.py --planner-only
 ```
 
-在已配置 MSVC/Rust 的终端运行，或显式传自己的 `--toolchain` 与 `--vcvars`。默认构建安装普通及独立搜索扩展；planner-only 不覆盖原输入扩展。Windows 不允许覆盖已加载 `.pyd`，需要先结束持有它的会话／后端。详情见[native README](../native/README.md)。
+在已配置 MSVC/Rust 的终端运行，或显式传自己的 `--toolchain` 与 `--vcvars`。默认构建安装普通及独立搜索扩展；planner-only 不覆盖原输入扩展。Windows 不允许覆盖已加载 `.pyd`，需要先结束持有它的会话／后端。详情见[native README](../native/README.zh-CN.md)。
 
 ## 7. 构建、Git 发布与部署
 

@@ -5,7 +5,7 @@ English · [简体中文](README.zh-CN.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Windows 10/11 x64](https://img.shields.io/badge/Windows-10%2F11%20x64-0078D4?style=flat-square)](#requirements)
 [![Python 3.10](https://img.shields.io/badge/Python-3.10-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
-[![PyTorch CUDA](https://img.shields.io/badge/PyTorch-CUDA-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](docs/core-logic.md)
+[![PyTorch CUDA](https://img.shields.io/badge/PyTorch-CUDA-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](docs/en/core-logic.md)
 [![Optional Rust](https://img.shields.io/badge/Rust-optional-DEA584?style=flat-square)](native/README.md)
 
 TH06NC-Neural-Pilot is an experimental reinforcement learning agent for the Windows Steam edition of **Touhou Koumakyou: New Classic - the Embodiment of Scarlet Devil**. It combines a PPO policy with a rolling path planner to dodge bullets, collect power items, and keep shots on target while playing the game. The agent observes the running game through read-only state capture and acts through standard Windows keyboard input. [Official game listing](https://store.steampowered.com/app/4659620/)
@@ -44,8 +44,8 @@ powershell -ExecutionPolicy Bypass -File .\build-ui.ps1
 
 1. Open `config.json` and set `game_exe` to the full path to your `th06nc.exe`. The install script creates the file from `config.example.json` on the first run.
 2. Run `StartAI.cmd` and open the console at [127.0.0.1:18765](http://127.0.0.1:18765). Choose **English** or **简体中文** in the top bar. The browser remembers your selection.
-3. In **Safety & Diagnostics**, run the GPU check, open the game, and complete live calibration. Confirm power, bombs, and lives against the game display as described in the [first-run guide](docs/development.md#首次校准与资源核对).
-4. In the **Training Console**, choose your game setup, objective, and duration. Select **New Model** for a fresh run or **Resume Training** to continue from a saved checkpoint. Keep the game window focused during live play.
+3. In **Safety & Diagnostics**, run the GPU check, open the game, and complete live calibration. Then verify Power, bombs, and lives and save the required local resource confirmation. [First-run calibration](docs/en/development.md#first-run-calibration)
+4. In the **Training Console**, choose your game setup, objective, and duration. Select **New model** for a fresh run or **Resume Training** to continue from a saved checkpoint. Keep the game window focused during live play.
 
 To inspect the console and saved history, launch the read-only preview.
 
@@ -65,7 +65,7 @@ The preview opens at port `18766`. CLI and legacy desktop messages use the syste
 | **F8** | Stop the protected process tree and release keys immediately. Recovery starts from the last completed checkpoint. |
 | **Shut Down** or `CloseAI.cmd` | Finish the active session, save training progress, and shut down the local backend. |
 
-Refreshing or closing the browser keeps the session running. During play, the agent uses the arrow keys, **Shift** for focus movement, **Z** to shoot, and **X** to bomb. The independent GPU watchdog continues to run during pauses. Default stop conditions include a 70°C core temperature, 90% VRAM usage, and 60 seconds of stale telemetry. [Safety configuration](docs/development.md#保护字段)
+Refreshing or closing the browser keeps the session running. During play, the agent uses the arrow keys, **Shift** for focus movement, **Z** to shoot, and **X** to bomb. The independent GPU watchdog continues to run during pauses. Default stop conditions include a 70°C core temperature, 90% VRAM usage, and 60 seconds of stale telemetry. [Safety configuration](docs/en/development.md#safety-settings)
 
 ## How it works
 
@@ -85,21 +85,21 @@ flowchart LR
 
 The planner tests short paths against bullets, enemy collision bodies, and straight lasers while accounting for input delay. Resource and attack alignment scores help rank viable paths. The policy samples the joint movement and bomb action that PPO later evaluates. The React console manages sessions over localhost REST and receives state updates over SSE. Checkpoints, trajectories, and logs live on disk.
 
-The optional Rust extension accelerates search, collision checks, and parts of state capture and input. CUDA Graph inference and reusable buffers reduce policy dispatch overhead. See the [native build guide](native/README.md) and [benchmark methodology](docs/testing-and-performance.md) for verification scope and reproducible checks.
+The optional Rust extension accelerates search, collision checks, and parts of state capture and input. CUDA Graph inference and reusable buffers reduce policy dispatch overhead. See the [native build guide](native/README.md) and [benchmark methodology](docs/en/testing-and-performance.md) for verification scope and reproducible checks.
 
 ## Developer documentation
 
-Most detailed engineering notes are currently in Simplified Chinese.
+Browse the [English documentation index](docs/en/README.md) or switch to [简体中文文档](docs/README.md).
 
 | Task | Reference |
 | --- | --- |
-| Install, configure, and troubleshoot | [Development guide](docs/development.md), [FAQ](docs/faq.md) |
-| Work with difficulty, characters, and Practice | [Game setup](docs/game-settings.md) |
-| Follow the process and data flow | [Architecture](docs/architecture.md), [Code map](docs/code-map.md) |
-| Change observations, actions, models, or logs | [Data contracts](docs/data-contracts.md), [Implementation pitfalls](docs/gotchas.md) |
-| Tune capture, recording, and checkpoints | [Performance tuning](docs/performance-tuning.md) |
-| Translate console or backend messages | [Localization guide](docs/localization.md) |
-| Contribute a fix, test fixture, or benchmark | [Contributing](CONTRIBUTING.md), [Project instructions](AGENTS.md) |
+| Install, configure, and troubleshoot | [Development guide](docs/en/development.md), [FAQ](docs/en/faq.md) |
+| Work with difficulty, characters, and Practice | [Game setup](docs/en/game-settings.md) |
+| Follow the process and data flow | [Architecture](docs/en/architecture.md), [Code map](docs/en/code-map.md) |
+| Change observations, actions, models, or logs | [Data contracts](docs/en/data-contracts.md), [Implementation pitfalls](docs/en/gotchas.md) |
+| Tune capture, recording, and checkpoints | [Performance tuning](docs/en/performance-tuning.md) |
+| Translate console or backend messages | [Localization guide](docs/en/localization.md) |
+| Contribute a fix, test fixture, or benchmark | [Contributing](CONTRIBUTING.md), [Project instructions](docs/en/maintainer-instructions.md) |
 
 ## License and credits
 

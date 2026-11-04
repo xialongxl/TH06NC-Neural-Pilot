@@ -1,32 +1,28 @@
-# 可选 Rust 后端
+# Optional native runtime
 
-本项目的碰撞计算与按键后端都可在网页“保护与诊断 → 计算后端”切换为 Python、Rust 或自动。自动模式在扩展可用时选择 Rust，否则使用 Python；修改在下一次会话生效。模型文件、现有观测尺寸和神经网络参数不变。
+English · [简体中文](README.zh-CN.md)
 
-运行已经编译好的 `th06ai/native_runtime/_native_backend.cp310-win_amd64.pyd` 不需要安装 Rust。该文件用于 Windows x64 / Python 3.10。换 Python 小版本或操作系统时要重新编译。
+The Web console's **Safety & Diagnostics** page lets you select Python, Rust, or Auto for collision and input. Auto selects a supported extension when available. The next session uses the change and keeps the same observations and learned parameters.
 
-重新编译需要 Rust 和 MSVC Build Tools；依赖版本由 `Cargo.lock` 固定。使用系统 PATH 中的工具时：
+## Build
+
+The normal CPython 3.10 x64 Windows build produces `th06ai/native_runtime/_native_backend.cp310-win_amd64.pyd`. A compatible built extension runs without a Rust installation. Changing the interpreter ABI or platform requires a rebuild. Use the Rust and MSVC Build Tools on PATH, or supply your own toolchain directory with `--toolchain` and the path to `vcvars64.bat` with `--vcvars`. Cargo dependencies are pinned by `Cargo.lock`.
 
 ```powershell
 .\.venv\Scripts\python.exe tools\build_native.py
 .\.venv\Scripts\python.exe tools\build_native.py --test
+.\.venv\Scripts\python.exe tools\build_native.py --planner-only
 ```
 
-也可传 `--toolchain <含 cargo.exe 和 rustc.exe 的目录> --vcvars <vcvars64.bat 的路径>`，或在已配置好的开发终端运行。脚本只为当前编译子进程设置环境，缓存位于本项目 `.cache/cargo`、`.cache/rust-target`；不会安装系统级 Rust 或修改全局 PATH。重新编译前关闭本项目后端，Windows 不允许覆盖正在加载的 `.pyd`。
+Build environment changes are scoped to the child process. Cargo caches live under `.cache/cargo` and `.cache/rust-target`. End a session or backend that has loaded the target `.pyd` before rebuilding it. Windows holds the DLL open while it is mapped.
 
-既可以使用系统工具链，也可以传入自己的便携 Rust/MSVC 目录。构建脚本没有作者电脑的固定工具链路径；`--toolchain` 指向含 `cargo.exe/rustc.exe` 的目录，`--vcvars` 指向自己的 `vcvars64.bat`。历史验证使用过 Rust 1.99.1，当前依赖由 Cargo.lock 固定；这不是对所有其他编译器版本的兼容保证。
+## Runtime paths
 
-批量采集只使用 Python 已获得的只读进程句柄和已校验范围；请求与返回数据均由 Rust 独立拥有，一次释放 GIL 完成多次 ReadProcessMemory，返回后不保留可变 Python 缓冲。没有写内存权限或注入接口。
+- **Capture.** Python passes a read-only process handle and validated regions. Rust owns the request and returned data while it batches `ReadProcessMemory` calls with the GIL released. Auto retains reusable buffers for large reads and batches small control and phase fields. `capture_backend=rust` explicitly opts in to owned large-block reads. Local component timings favor the reused buffer for the measured large block. [Capture benchmarks](../docs/en/performance-tuning.md)
+- **Geometry.** Collision works from owned float32 snapshots. It checks continuous motion against round bullets, enemy-body rectangles, and oriented straight lasers, and splits paths at wall contacts.
+- **Search.** ABI v3 or the independent planner extension can evaluate candidate expansion, switch timing, ranking, fallback, and escape checks in one call. The Python reference path provides fallback and a parity oracle. `search_backend` identifies complete native search independently of `collision_backend`.
+- **Input.** A Rust mutex keeps held state and the SendInput batch in the same transaction. The Python wrapper also uses a reentrant lock. The independent F8 path can release input without acquiring the Rust worker's lock.
 
-采集默认 auto：大区块保留原 read_into 复用缓冲，小块相位／控制读取由 Rust 合并。全量拥有型大块路径在本机离线对照中因额外复制更慢，仅由 capture_backend=rust 显式启用；不是默认提速承诺。参见[性能与诊断配置](../docs/performance-tuning.md)。
+The default ABI v3 runtime includes search, collision, the Q menu key, and batched read-only capture. It installs under `native_runtime`, separate from the old ABI v2 input binary. `--planner-only` updates the independent search extension. Running workers load their native path when a session starts.
 
-碰撞输入先复制成独立的 float32 快照，Rust 在释放 GIL 后计算，不持有可变 NumPy 内存。碰撞内核没有可变全局状态；按键控制器以互斥锁串行管理 held 状态和 SendInput 批次。Python 包装器另有可重入锁。原有独立 F8 保护仍可直接释放按键，不依赖 Rust 工作线程的锁。
-
-几何包含普通圆形弹幕、敌机本体矩形和有朝向的直线激光矩形，均连续检查路径，并在撞墙处拆分速度。激光宽度、状态和旋转坐标变换依据当前游戏可执行文件映射，不能套用其他版本地址。
-
-整段搜索也可使用 Rust：默认 ABI v3 扩展或旧独立 `th06ai/native_planner/_native_backend.cp310-win_amd64.pyd` 可提供搜索；碰撞选择 Rust/自动时会一起启用。候选展开、切键时序探测、排序评分、回退和出口检测在一次释放 GIL 的调用中完成，输入是每次调用独立拥有的快照，没有共享可变搜索缓存。Python 参考实现保留；选择 Python 或没有搜索扩展时使用参考路径。诊断字段 `search_backend` 区分整段搜索与仅碰撞内核。
-
-默认构建安装 ABI v3 的 native_runtime 扩展，包含搜索、碰撞、Q 菜单键和批量只读采集；新路径不会覆盖旧会话已映射的 ABI v2 DLL。旧 v2 不作为新输入／采集 ABI 加载。只更新独立搜索扩展可使用 `tools/build_native.py --planner-only`（同样支持 `--toolchain` 和 `--vcvars`），无需覆盖正在使用的原按键扩展；正在运行的会话仍需结束后新建会话才会加载新代码。扩展不可用时的回退不重置模型，也不改变保护阈值。
-
-历史研究目录默认不随源码公开。公开的性能范围和复核方式见 [测试与性能](../docs/testing-and-performance.md)。离线按键测试使用 dry run，未发送真实按键；组件耗时不能代表整条控制链。游戏 60Hz 采样、系统调度、读取和模型推理也计入实际体验，SendInput 成功只表示事件进入队列。
-
-参考：[PyO3 并行与 GIL](https://pyo3.rs/v0.30.1/parallelism)、[Microsoft SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)。
+Offline input tests use dry-run mode. Component timings exclude game response, which depends on the game tick, capture, operating system scheduling, and model inference. SendInput reports acceptance by the system queue. [Test and timing scope](../docs/en/testing-and-performance.md)

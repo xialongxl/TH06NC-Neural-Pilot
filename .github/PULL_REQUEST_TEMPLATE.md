@@ -1,18 +1,20 @@
-## 问题与结果
+Use English or Simplified Chinese. 可以使用英文或简体中文。
 
-触发条件、原行为与修改后的行为：
+## Problem and result / 问题与结果
 
-## 实现与兼容性
+Describe the trigger and the behavior before and after. 请说明触发条件与修改前后的行为。
 
-是否改变观测、奖励、动作概率、迁移、原生 ABI、保护或 UI 协议：
+## Implementation and compatibility / 实现与兼容性
 
-## 实际验证
+List changes to observations, rewards, action probabilities, migrations, native ABI, safety, or the UI protocol. 请说明观测、奖励、动作概率、迁移、原生 ABI、保护或界面协议的变化。
 
-命令、结果、实机／离线范围、未验证事项：
+## Verification / 实际验证
 
-## 贡献与发布检查
+List commands, results, and whether checks used offline fixtures or the live game. Include unverified areas. 请列出命令、结果、离线或实机范围，以及尚未验证的部分。
 
-- [ ] 已更新相关文档／契约，并运行文档核验。
-- [ ] 没有提交个人路径、凭据、游戏文件、模型 ZIP、日志或依赖缓存。
-- [ ] 第三方代码来源与许可已保留。
-- [ ] 未把离线指标写成完整实机延迟或稳定通关证据。
+## Checklist / 提交检查
+
+- [ ] Updated relevant contracts and both documentation editions, and ran the docs checker. 已更新相关契约和双语文档，并运行文档检查。
+- [ ] Kept personal paths, credentials, game files, checkpoints, logs, and caches out of the PR. 已排除个人路径、凭据、游戏文件、模型、日志和缓存。
+- [ ] Preserved upstream sources and licenses. 已保留第三方来源和许可证。
+- [ ] Labeled offline timings separately from live input and clear evidence. 已区分离线指标、实机延迟与通关证据。
