@@ -2,13 +2,14 @@
 
 English · [简体中文](../performance-tuning.md)
 
-The 2026-11-03 optimization work separates input-critical computation from optional diagnostics. The comparisons below are component measurements with the stated inputs. Live capture, input, and training verification are separate.
+The control path keeps optional diagnostics off the input-critical thread. The comparisons below are component measurements with the stated inputs. Live capture, input, and training verification are separate.
 
 ## Current implementation
 
 | Area | Design |
 | --- | --- |
 | Read-only capture | Auto reuses large-block buffers and batches small control, phase, and HUD fields through Rust where available. Explicit Rust selects owned large-block capture. Capture retains full pools, enemies, lasers, and cross-tick evidence. |
+| Bullet and item decoding | Identify active slots first, then gather their fields. Preserve pool state validation, slot order, visibility bounds, and unknown geometry. |
 | Bullet features | Reward and observation share `BulletStateCache` keyed by snapshots and geometry. Owned native arrays are read-only. Mutable external fixtures require content checks. |
 | Diagnostics | Bounded tasks offload action row encoding, list conversion, death archives, and compression to a CPU-only helper. |
 | Inference | Twelve arrays are packed into continuous pinned host/device storage for one CUDA H2D input copy. Small outputs also reuse buffers. |
@@ -75,6 +76,6 @@ The revised CUDA packing had CPU numerical parity checks. A protected live check
 
 ## Apply changes and verify
 
-Observation remains v9, policy v2, planner v7, and action timing v3. Reward is v9, diagnostics v3, native ABI v3, and UI SSE v2. Build Rust using the native instructions and end the session before replacing a loaded DLL. Existing workers keep their loaded source until a new session starts. [Native build](../../native/README.md)
+Planner v8 supports existing checkpoints. The current versions are observation v9, policy v2, action timing v3, reward v9, diagnostics v3, native ABI v3, and UI SSE v2. Build Rust using the native instructions and end the session before replacing a loaded DLL. Existing workers keep their loaded source until a new session starts. [Native build](../../native/README.md)
 
 Use `test_optimization_contracts.py`, `test_state_capture.py`, `test_observation_traces.py`, `test_latency_profiler.py`, `test_native_search.py`, `test_rust_backend.py`, `test_model_store.py`, and the console concurrency checks. [Test and benchmark methodology](testing-and-performance.md)

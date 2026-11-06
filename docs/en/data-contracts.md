@@ -12,7 +12,7 @@ The code defines exact dtypes, parsing, and serialization. Review readers, write
 | Observation layout | 9 | `observations.py:OBSERVATION_VERSION` |
 | Reward semantics | 9 | `rewards.py:REWARD_VERSION` |
 | Policy and bomb head | 2 | `policy_spec.py:POLICY_VERSION` |
-| Planning | 7 | `planner_spec.py:PLANNER_VERSION` |
+| Planning | 8 | `planner_spec.py:PLANNER_VERSION` |
 | Action timing | 3 | `observations.py:ACTION_TIMING_VERSION` |
 | Input timing diagnostics | 3 | `input_timing.py:InputTiming.begin` |
 | Native collision, input, and capture ABI | 3 | `native/src/lib.rs:API_VERSION` |
@@ -103,7 +103,19 @@ Observation v1–v8 migration keeps compatible weights, optimizer state, and ori
 | `evaluation_progress.json`, `evaluation.json` | Per-round progress, then final report once the requested count completes |
 | `training_summary.json` | Normal training summary |
 
+In `worker.json`, `clock_started` signals readiness and `clock_paused` indicates a manual wait. `scene_wait_step` identifies the accepted sample count at the start of an automatic wait. It is `null` after the wait ends. These fields report state.
+
+The watchdog publishes `training_seconds`, `paused_seconds`, and `budget_seconds` in the `session_time` field of `status.json` and `result.json`. The first two values are `null` until session timing starts. `paused_seconds` includes manual waits and credited automatic waits. `guarded_scene_wait_seconds` reports the automatic portion separately. For training sessions, the watchdog projects the three clock fields into `worker` for the existing console. `training_summary.json` captures the most recent snapshot read by the worker at save time. `result.json` records the watchdog's final observation.
+
 The last CSV row can precede the actual last action after an emergency stop. A full PPO NPZ stores `obs_<key>` as steps × env × observation shape and retains the sampled action, value, and log probability. `metadata.gae_ready=false` identifies a rollout whose final advantages and returns were unavailable. Summary traces omit the observation arrays.
+
+### Fixed-checkpoint evaluation report
+
+`report_version=1` retains the checkpoint SHA-256, requested setup, and domain versions. Aggregates cover completed rounds. Each round records its observed starting setup, whether it matched the request, the furthest stage observed, misses, and bombs consumed. `stage_progress` separates the first stage observation, the first combat sample, and the first matching input observation using native ticks. The current round's milestones appear in `worker.json` as `evaluation_round`.
+
+`confirmed_stage_transitions` requires two consecutive native stage identities in the same Story round with the same known difficulty and shot type. Only these observed transitions contribute to `rounds_clearing_stage`. The report keeps Practice menu returns, native results, and time limits as distinct endings. A clear of the final stage requires separate verification.
+
+Boss Power comes from the first frame with a visible Boss in each observation window. A new window requires at least 120 native ticks of continuous Boss-free combat observations. Appearance numbers support comparisons under the same setup. The identity of a midboss or final boss still requires separate evidence. `boss_power_summary` gives the sample count and median Power for each stage and window. Missing readings remain `null`.
 
 Death NPZ `frames` rows include tick, stage, x/y, state, paused, focused, radius, input bits, Power, bombs, and lives. Variable-length pools use offsets into concatenated arrays. Bullet rows use slot,x,y,width,height,state. Contact bodies and items have six columns and lasers eight. The snapshot excludes the full enemy HP target list. A nearby object is evidence for analysis. A native damage-source ID remains unknown where the game did not supply one.
 

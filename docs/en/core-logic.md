@@ -24,21 +24,27 @@ Among viable routes, scores reflect clearance, wall pressure, mobility, reachabl
 
 The Python path is a reference. `rust_sweep()` can accelerate only collision, while `plan_bytes()` handles a complete search on an owned snapshot with the GIL released. Inspect `search_backend` and `collision_backend` separately. [Native runtime](../../native/README.md)
 
+Both paths apply planner v8's final fallback ranking. If the contact probe with laser telegraphs has no candidate and the switch window was fully checked, the planner prioritizes moves that clear the short confirmed-damage probe at every switch tick and pass a separate check for enemy bodies and damaging lasers. The full forecast continues to inform risk ranking. Action logs identify this adjustment with `planner_active_threat_priority`.
+
 [`ResourcePolicy`](../../th06ai/policy.py) applies masked mean and max pooling to per-entity encodings and fuses the player, inventory, control, planning, navigation, and context inputs. It combines learned logits with planner masks and biases. It masks bombs in NMNB and with empty stock. Survival's conditional prior affects exploration in strict rescue windows.
 
 [`PolicyRunner.predict()`](../../th06ai/inference.py) returns `actions`, `values`, `log_probs`, `bomb_probability`, and timing. It packs the twelve inputs into reusable buffers, transfers one continuous input on CUDA, and can replay a fixed-shape CUDA Graph using the same parameter storage as training. Auto fallback handles graph capture limitations. Device loss, illegal access, and OOM remain errors. The sampled, executed, and replayed joint distribution must agree.
 
 ## 3. Execute, reward, update, and save
 
-[`TouhouEnv.step(action)`](../../th06ai/environment.py) accepts action 0–35 and returns the Gymnasium tuple `(observation, reward, terminated, truncated, info)`. The environment validates authorization and scene, handles pause/focus requests, coordinates dialogue, and checks held shooting state. It dispatches the ordered input batch and holds it for at least two new control ticks before capturing the full result. Diagnostics retain actual held state, timing, geometry, outcomes, and reward components.
+[`TouhouEnv.step(action)`](../../th06ai/environment.py) accepts action 0–35 and returns the Gymnasium tuple `(observation, reward, terminated, truncated, info)`. `_prepare_action()` checks authorization, the session budget, pause requests, and the scene. `_capture_action()` reconciles held shooting state, sends the ordered batch, and validates captures. A normal hold lasts at least two ticks from the first post-dispatch control sample. A Miss detected by a lightweight capture remains part of the transition even if the full frame shows a respawn. `_record_transition()` updates rewards and episode state, builds the next observation, and publishes diagnostics.
 
 `SamplingInterrupted` requests a fresh observation for recoverable pauses and interruptions. Near hazards, the pre-send stale-frame check may refresh once. It records a warning if the retry is still over budget. Record committed transitions before a budget callback can terminate the run.
 
 [`RewardTracker.step(frame, action, died)`](../../th06ai/rewards.py) computes observed feedback for combat time, first Miss, wall and camping behavior, inventory, pickups, Power potential, target potential, shot alignment, and credible HP changes. It closes relevant potentials on death to reduce recollection exploits. Item reachability uses the verified unfocused speed, with the historical 4 px/tick fallback when unavailable. Score and grazing remain diagnostic or contextual.
 
-[`PausablePPO.collect_rollouts()`](../../th06ai/pausable_ppo.py) and [`TrainingCallback`](../../th06ai/learning.py) gate controls, refresh if needed, sample and record real transitions, pause at the rollout boundary, queue traces, update PPO, save, and resume from a fresh frame. Live defaults use a single environment, `n_steps=512`, `batch_size=64`, `n_epochs=4`, `learning_rate=3e-4`, `gamma=.999`, and `gae_lambda=.95`. Boundary handling cuts GAE. Use the valid previous observation for bootstrap where appropriate. A Practice results boundary ends the episode without synthetic combat input.
+[`PausablePPO.collect_rollouts()`](../../th06ai/pausable_ppo.py) and [`TrainingCallback`](../../th06ai/learning.py) gate controls, refresh if needed, sample and record real transitions, pause at the rollout boundary, queue traces, update PPO, save, and resume from a fresh frame. Live defaults use a single environment, `n_steps=512`, `batch_size=64`, `n_epochs=4`, `learning_rate=3e-4`, `gamma=.999`, and `gae_lambda=.95`. A stage boundary found during resume bootstraps from the valid previous observation, cuts GAE, and then refreshes the observation. A Practice results boundary ends the episode without synthetic combat input.
+
+`TrainingControl` reads active time from the watchdog snapshot cached by the worker heartbeat thread. It reports `overtime_stage` when the target is reached during an identified stage. It finishes at a confirmed Story handoff, native results screen, or end of the attempt. If a Miss ends the round, the sampler records the terminal transition and skips the usual automatic restart. Overtime is capped at 600 active seconds. A partial rollout is retained for diagnostics, and the checkpoint contains the last completed parameter update.
 
 `save_model()` saves an updated model and preserves a verified prior latest as immutable history. The ZIP and its sidecar are separately written, so a hash mismatch must block use or replacement. `load_model()` checks project ownership scope and metadata, preserves source files, and migrates compatible weights and optimizer history.
+
+At normal training completion, the worker releases keys and checks the watchdog authorization before saving. Cleanup then makes a brief attempt to pause a game that is still in the foreground. A read or input failure during cleanup is recorded separately from the checkpoint result as `cleanup_error` in `worker.json`.
 
 ## 4. Authorize independently
 
@@ -46,11 +52,15 @@ The Python path is a reference. `rust_sweep()` can accelerate only collision, wh
 
 `SafetyPolicy.check()` checks freshness, identity, finite telemetry, temperature, VRAM, power, throttling, fans, and available error counters. An unavailable optional sensor and a supported sensor failing mid-session have different meanings. `SharedLease.publish()` is owner-only. The last complete record can cover a busy read only with its original timestamp. Worker heartbeat and telemetry expiry use separate thresholds. F8 and hardware faults can stop the Job without waiting for PPO or model I/O.
 
+`GuardedSessionClock` owns live session time. Startup has its own deadline. The watchdog starts session accounting when it observes `clock_started`. It excludes manual waits reported through `clock_paused` and up to 60 seconds of automatic waiting per accepted sample reported through `scene_wait_step`. It publishes the snapshot in `status.json`. The console displays it, and the worker reads it on the heartbeat thread for deadline checks on the control path.
+
+The training target, stage overtime, and hard execution deadline use the same active duration. At the target, a valid `overtime_stage` grants one fixed allowance. The hard deadline includes 120 seconds for cooperative shutdown and saving. GPU protection and F8 remain effective throughout.
+
 ## 5. Manage sessions and display state
 
-[`create_app()`](../../th06ai/web_console.py) serves loopback routes. [`ConsoleService`](../../th06ai/console_service.py) serializes session creation, resolves model IDs, and forwards PAUSE/FOCUS/FINISH/STOP. A display read creates no training session. Writes use same-origin validation and the current bootstrap token.
+[`create_app()`](../../th06ai/web_console.py) serves loopback routes. [`ConsoleService`](../../th06ai/console_service.py) resolves model IDs and verifies checkpoints outside the session lock. The final launch rechecks the session, shutdown state, and checkpoint files before creating and registering the guarded process under the lock. PAUSE/FOCUS/FINISH/STOP marker writes use the same lock. A `FINISH` received before worker creation cancels startup. A separate game lock serializes window activation and read-only probes with launch. Writes use same-origin validation and the current bootstrap token.
 
-[`SnapshotBroker`](../../th06ai/console_stream.py) shares low-rate reads. The catalog caches immutable metadata and publishes incremental rescans under a short lock. [`applyFrame()`](../../frontend/src/stream.ts) applies snapshot or revisioned delta, reconciles curve cursors, and preserves unchanged references. Heartbeats carry no state replacement. A gap triggers a fresh snapshot and slow clients converge on the latest revision.
+[`SnapshotBroker`](../../th06ai/console_stream.py) shares low-rate reads. A snapshot copies session and configuration references under the session lock, then releases it before reading status and telemetry. Log reads and cache misses do their I/O outside the session lock. The catalog prepares rows in the background and publishes them under a short lock. [`applyFrame()`](../../frontend/src/stream.ts) applies a snapshot or revisioned delta, reconciles curve cursors, and preserves unchanged references. A gap triggers a fresh snapshot and slow clients converge on the latest revision.
 
 ```json
 {

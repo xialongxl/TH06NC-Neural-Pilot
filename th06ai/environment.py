@@ -4,7 +4,7 @@ from .i18n import msg
 import time
 import json
 from contextlib import nullcontext
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -13,7 +13,7 @@ import numpy as np
 
 from .config import Config, ROOT
 from .files import read_json
-from .planning import RollingPlanner
+from .planning import PlanResult, RollingPlanner
 from .native import Frame, GameReader, INPUT_WORD
 from .observations import ACTION_COUNT, ACTION_TIMING_VERSION, ObservationBuilder, action_keys, make_observation_space, movement_action
 from .rewards import REWARD_VERSION, RESOURCE_BUDGET, RewardTracker, residence_age
@@ -23,6 +23,19 @@ from .input_timing import InputTiming, clock_ns
 from .game_phase import phase_of, combat_frame, PHASE_NAMES
 from .stage import context_changed, stage_label
 from .game_settings import GameSetup, MENU_PHASES, menu_key, observed_settings
+
+
+@dataclass(slots=True)
+class _ActionSample:
+    action: int
+    before: Frame
+    after: Frame
+    dispatch_tick: int
+    death_probe_tick: int | None
+    previous_action: int | None
+    previous_keys: set[str]
+    actual_previous_action: int | None
+    decision_plan: PlanResult | None
 
 
 class TouhouEnv(gym.Env):
@@ -68,6 +81,7 @@ class TouhouEnv(gym.Env):
         self.stage_ticks = 0
         self.stage_changes = 0
         self.pending_stage_boundary = False
+        self._practice_origin = None
         self._decision_refresh_used = False
         self.decision_refreshes = 0
         self.decision_context = {}
@@ -114,14 +128,18 @@ class TouhouEnv(gym.Env):
         if not hasattr(self.reader,'read_control') or self.current is None:return
         if not self.reader.window.focused:
             self._pause_sampling(msg('backend.the_game_lost_focus_keys_were_released'))
-        probe = self.reader.read_control()
         before = self.current
-        self._practice_result(probe)
-        if probe.state == 2:return  # Preserve a real Miss for the normal step path.
-        if phase_of(probe) in ('dialogue','script_wait'):
-            self._sampling = True
-            try:self._advance_dialogue()
-            finally:self._sampling = False
+        if phase_of(before) in ('result', 'practice_stage', 'title', 'title_prompt'):
+            self._round_result(before, before)
+        probe = self.reader.read_control()
+        self._sampling = True
+        try:
+            self._check_sampling_scene(probe, before)
+            if probe.state == 2:return  # Preserve a real Miss for the normal step path.
+            if phase_of(probe) in ('dialogue','script_wait'):
+                self._advance_dialogue()
+        finally:
+            self._sampling = False
         if probe.paused or not probe.stage_active:
             self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
         plan = self.builder.last_plan
@@ -139,7 +157,7 @@ class TouhouEnv(gym.Env):
             if diagnostics is not None:diagnostics.event(event='decision_refresh_budget',stage_id=before.stage_id,**self.freshness_warning)
             return
         latest = self.reader.read()
-        self._practice_result(latest)
+        self._check_sampling_scene(latest, before)
         if latest.state == 2:return
         if context_changed(before,latest) or latest.tick<before.tick:
             self._rebase_sampling(latest,before)
@@ -219,7 +237,7 @@ class TouhouEnv(gym.Env):
             if getattr(self, "_sampling", False) and not control.busy:
                 control.request_pause(msg('backend.the_game_lost_focus_and_was_paused'))
                 raise SamplingInterrupted()
-            if not control.busy and control.started is not None:
+            if not control.busy and control.started:
                 control.request_pause(msg('backend.the_session_paused_while_you_used_the'))
             self._acquire_focus()
 
@@ -312,14 +330,22 @@ class TouhouEnv(gym.Env):
         """Only confirmed NC screens receive keys; wait through animations."""
         deadline=time.monotonic()+25
         last_command=None
+        control = getattr(self, 'training_control', None)
         while time.monotonic()<deadline:
             self.lease()
+            if control:
+                control.check_budget(boundary='stage_ended')
             f=self.reader.read()
             phase=phase_of(f)
             self.status(phase=msg('backend.entering_the_game'),game_phase=phase,game_phase_evidence=f.phase_evidence,
                         game_settings=observed_settings(f),
                         message=PHASE_NAMES.get(phase,phase))
+            setup = getattr(self, 'game_setup', None)
             if combat_frame(f) and f.tick>0:
+                if setup is not None and any(getattr(f, key) is None for key in (
+                        'stage_id', 'difficulty', 'character', 'game_mode')):
+                    self._wait(.025)
+                    continue
                 self.current=f
                 self._verify_setup(f)
                 return
@@ -331,7 +357,6 @@ class TouhouEnv(gym.Env):
                     self._wait(.05)
                 continue
             if phase in MENU_PHASES and phase != 'menu_transition' and f.menu_ready:
-                setup = getattr(self, 'game_setup', None)
                 selection=f.menu_selection
                 try:
                     if setup is not None:
@@ -360,11 +385,20 @@ class TouhouEnv(gym.Env):
         second = self.reader.read()
         return first.stage_active and second.stage_active and first.tick == second.tick
 
-    def pause(self):
+    def release_input(self):
         self.keys.release()
         self.last_action = None
+
+    def _at_round_menu(self, frame):
+        phase = phase_of(frame)
+        return phase == 'continue' or (phase == 'result' and (
+            getattr(self, '_practice_origin', None) is not None
+            or self._story_end_reason(frame, getattr(self, 'current', None)) is not None))
+
+    def pause(self):
+        self.release_input()
         f = self.reader.read()
-        if f.stage_active:
+        if f.stage_active and not self._at_round_menu(f):
             if not f.paused:
                 self._ensure_transaction_focus()
                 self.keys.set({'esc'})
@@ -373,7 +407,7 @@ class TouhouEnv(gym.Env):
                     while not f.paused:
                         deadline += self._wait(.005) or 0.
                         f = self.reader.read()
-                        if f.paused or not f.stage_active:
+                        if f.paused or not f.stage_active or self._at_round_menu(f):
                             break
                         if 'esc' not in getattr(self.keys, 'held', {'esc'}):
                             self.keys.set({'esc'})
@@ -384,9 +418,8 @@ class TouhouEnv(gym.Env):
                 finally:
                     self.keys.release()
             self.managed_pause = True
-        self._account_menu_gap(f)
+        self._remember_pause_frame(f)
         self.status(paused=bool(f.paused),game_phase=phase_of(f),game_phase_evidence=f.phase_evidence)
-        self.current = f
 
     def _await_manual_pause(self):
         self.keys.release()
@@ -400,7 +433,7 @@ class TouhouEnv(gym.Env):
                 f=self.reader.read()
                 self.status(phase=msg('backend.waiting_for_the_game_to_pause'),message=reason,user_paused=True,
                             game_phase=phase_of(f),game_phase_evidence=f.phase_evidence)
-                if f.paused or not f.stage_active:return f
+                if f.paused or not f.stage_active or self._at_round_menu(f):return f
                 if (control.run_dir/'FINISH').exists():raise FinishTraining()
                 time.sleep(.05)
 
@@ -418,9 +451,24 @@ class TouhouEnv(gym.Env):
             self.stage_ticks=getattr(self,'stage_ticks',0)+gap
             self.unsampled_ticks=getattr(self,'unsampled_ticks',0)+gap
 
+    def _remember_pause_frame(self, frame):
+        previous = getattr(self, 'current', None)
+        self._account_menu_gap(frame)
+        # F7 or a PPO update can land on either side of the loading screen.
+        # Keep the old context until resume can record the real boundary.
+        if self._stage_transition_pending(frame, previous) or self._story_end_reason(frame, previous) or (
+                getattr(previous, 'game_mode', None) == 'story' and frame.game_mode == 'story'
+                and context_changed(previous, frame)):
+            return
+        self.current = frame
+
     def resume(self):
         self.last_action = None
+        previous = getattr(self, 'current', None)
         f = self.reader.read()
+        control = getattr(self, 'training_control', None)
+        if control and control.budget_reached and self._confirmed_context_change(previous, f):
+            self._record_stage_context(f, previous)
         if f.stage_active and (f.paused or self.managed_pause and not f.phase):
             # Observed NC menu: Z confirms "解除暂停"; Escape does not resume.
             previous_tick = f.tick
@@ -446,15 +494,22 @@ class TouhouEnv(gym.Env):
                     self._pause_sampling(msg('backend.select_resume_in_the_pause_menu_before'))
             self._ensure_transaction_focus()
             self.status(phase=msg('backend.waiting_for_the_resume_animation'), message=msg('backend.waiting_for_game_frames_to_advance'))
+            paused_frame = f
             deadline = time.monotonic() + 3
             self.keys.set({'z'})
             try:
                 while True:
                     f = self.reader.read()
+                    if getattr(self, '_practice_origin', None) is not None and self._practice_end_reason(f):
+                        break
+                    if self._stage_transition_pending(f, previous):
+                        break
                     # A fixed tap and coarse three-frame check left the
                     # player idle after PPO updates. Confirm semantic resume
                     # and its first advancing native frame instead.
-                    if f.stage_active and not f.paused and f.tick > previous_tick:
+                    if f.stage_active and not f.paused and (f.tick > previous_tick or (
+                            paused_frame.game_mode == 'story' and f.game_mode == 'story'
+                            and f.stage_id is not None and f.stage_id != paused_frame.stage_id)):
                         self.status(last_input={'key':'z','game_bits':getattr(f,'input_bits',None),
                                                 'native_tick':f.tick,'confirmed':True})
                         break
@@ -467,12 +522,23 @@ class TouhouEnv(gym.Env):
                 self.keys.release()
         self.managed_pause = False
         self.status(paused=False)
-        previous=getattr(self,'current',None)
+        if self._stage_transition_pending(f, previous):
+            # The sampler can cut the rollout when the new stage is known.
+            # Keep the last playable frame across an F7 pause in the handoff.
+            return
         if previous is not None and previous.paused and combat_frame(f) and f.tick>=previous.tick and getattr(self,'episode_count',0) and not context_changed(previous, f):
             gap=f.tick-previous.tick
             self.episode_ticks=getattr(self,'episode_ticks',0)+gap
             self.unsampled_ticks=getattr(self,'unsampled_ticks',0)+gap
+        if self._story_end_reason(f, previous):
+            # Let the sampler close the episode with the last known stage.
+            return
         self.current = f
+        if getattr(self, '_practice_origin', None) is not None and (
+                self._practice_end_reason(f) or phase_of(f) == 'menu_transition'):
+            # Resolve the Practice exit in the sampler, where a terminal
+            # boundary can cut GAE without bootstrapping from the menu.
+            return
         tracker = getattr(self, "reward_tracker", None)
         if context_changed(previous, f):
             self._record_stage_context(f, previous)
@@ -495,13 +561,12 @@ class TouhouEnv(gym.Env):
 
     def pause_for_user(self):
         """Confirm an actual game pause, then return focus to the user's panel."""
-        self.keys.release()
-        self.last_action = None
+        self.release_input()
         observed = self.reader.read()
-        if observed.paused or not observed.stage_active:
+        if observed.paused or not observed.stage_active or self._at_round_menu(observed):
             self.keys.release()
-            self._account_menu_gap(observed)
-            self.current, self.managed_pause = observed, bool(observed.paused)
+            self._remember_pause_frame(observed)
+            self.managed_pause = bool(observed.paused)
             self.status(paused=bool(observed.paused),game_phase=phase_of(observed),game_phase_evidence=observed.phase_evidence)
             return
         previous = foreground()
@@ -544,6 +609,9 @@ class TouhouEnv(gym.Env):
             old = self.reader.read()
         # Observe the reset while R is down. Waiting until after a short tap
         # can miss frame 0, or miss the shortcut during a menu transition.
+        control = getattr(self, 'training_control', None)
+        if control:
+            control.check_budget(boundary='stage_ended')
         self.keys.set({"r"})
         reset_seen = False
         press_deadline = time.monotonic() + .6
@@ -589,10 +657,14 @@ class TouhouEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+        terminal = getattr(self, '_terminal_observation', None)
+        self._terminal_observation = None
+        control = getattr(self, 'training_control', None)
         while True:
-            control = getattr(self, 'training_control', None)
             try:
                 if control:
+                    if not self.first_reset:
+                        control.check_budget(boundary='stage_ended')
                     control.gate(self, resume_game=False)
                 if self.first_reset:
                     self.ensure_game_started(restart=(options or {}).get("restart", True))
@@ -604,11 +676,19 @@ class TouhouEnv(gym.Env):
                 if control is None:
                     raise
                 control.gate(self, resume_game=False)
+            except FinishTraining as finish:
+                if terminal is None or finish.reason == 'manual':
+                    raise
+                # SB3 resets inside step(). Deliver the real last transition
+                # even when the timer expires during the reset transaction.
+                self.release_input()
+                return terminal, {}
         self.builder.reset()
         self.input_timing = InputTiming()
         self.current = self.reader.read()
         if self.current.resources is None:
             raise RuntimeError(msg('backend.verified_in_game_resources_are_required_for'))
+        self._practice_origin = self.current if getattr(self.current, 'game_mode', None) == 'practice' else None
         self.reward_tracker.reset(self.current)
         self.last_action = None
         self.start_tick = self.current.tick
@@ -624,27 +704,75 @@ class TouhouEnv(gym.Env):
         self.decision_context = {}
         self.freshness_warning = None
         self.episode_count += 1
-        self.status(phase=msg('backend.collecting_training_samples'), episodes=self.episode_count, paused=False)
+        self.status(phase=msg('backend.collecting_training_samples'), episodes=self.episode_count, paused=False,
+                    stage_id=self.current.stage_id, stage_label=stage_label(self.current.stage_id),
+                    stage_seconds=0., stage_changes=0, native_tick=self.current.tick,
+                    game_phase=phase_of(self.current), game_phase_evidence=self.current.phase_evidence,
+                    game_settings=observed_settings(self.current))
         return self.builder.build(self.current), {"native_tick": self.current.tick,
                 'stage_id': self.current.stage_id, 'stage_label': stage_label(self.current.stage_id),
                 'game_settings': observed_settings(self.current)}
 
-    def _practice_result(self, frame):
-        if phase_of(frame) != 'result' or getattr(self.current, 'game_mode', None) != 'practice':
+    @staticmethod
+    def _practice_end_reason(frame):
+        phase = phase_of(frame)
+        if phase == 'result':
+            return 'practice_result'
+        if phase == 'practice_stage' and getattr(frame, 'phase_evidence', {}).get('practice_menu') is True:
+            return 'practice_return'
+        return None
+
+    def _practice_result(self, frame, *, death_probe_tick=None):
+        origin = getattr(self, '_practice_origin', getattr(self, 'current', None))
+        if getattr(origin, 'game_mode', None) != 'practice':
             return
-        self.keys.release()
-        info = {'episode_end_reason':'practice_result', 'died':False,
+        reason = self._practice_end_reason(frame)
+        if reason is not None:
+            self._finish_round(frame, origin, reason, death_probe_tick)
+
+    @staticmethod
+    def _story_end_reason(frame, before):
+        if getattr(before, 'game_mode', None) != 'story':
+            return None
+        last_stage = {'easy': 5, 'extra': 7}.get(before.difficulty, 6)
+        if before.stage_id != last_stage:
+            return None
+        phase = phase_of(frame)
+        if phase == 'result':
+            return 'story_result'
+        if not frame.stage_active and phase in ('title', 'title_prompt'):
+            return 'story_return'
+        return None
+
+    def _round_result(self, frame, before, *, death_probe_tick=None):
+        self._practice_result(frame, death_probe_tick=death_probe_tick)
+        reason = self._story_end_reason(frame, before)
+        if reason is not None:
+            self._finish_round(frame, before, reason, death_probe_tick)
+        if phase_of(frame) == 'result' and getattr(before, 'game_mode', None) == 'story':
+            control = getattr(self, 'training_control', None)
+            if control:
+                control.check_budget(boundary='stage_result')
+
+    def _finish_round(self, frame, origin, reason, death_probe_tick):
+        self.release_input()
+        died = death_probe_tick is not None or frame.state == 2
+        info = {'episode_end_reason':'death' if died else reason, 'died':died,
                 'survival_seconds':getattr(self,'episode_ticks',0)/60,
-                'stage_id':self.current.stage_id, 'stage_label':stage_label(self.current.stage_id),
-                'game_settings':observed_settings(self.current), 'goal':self.goal,
+                'stage_id':origin.stage_id, 'stage_label':stage_label(origin.stage_id),
+                'game_settings':observed_settings(origin), 'goal':self.goal,
                 'episode_bombs_used':getattr(self,'episode_bombs_used',0),
                 'episode':{'r':self.episode_return,'l':self.episode_steps,'t':self.episode_ticks/60},
                 'episode_diagnostics':self.reward_tracker.diagnostics()}
         self.current = self._full_frame(frame)
-        self.status(phase=msg('backend.practice_round_complete'), game_phase='result', game_settings=observed_settings(self.current),
-                    message=msg('backend.results_screen_confirmed_the_next_round_will'))
-        if self.diagnostics is not None:
-            self.diagnostics.event(event='practice_result', **info)
+        self._practice_origin = None
+        self.pending_stage_boundary = False
+        self.status(phase=msg('backend.stage_round_complete'), game_phase=phase_of(self.current),
+                    game_phase_evidence=self.current.phase_evidence, game_settings=observed_settings(self.current),
+                    message=msg('backend.stage_round_boundary_confirmed'))
+        diagnostics = getattr(self, 'diagnostics', None)
+        if diagnostics is not None:
+            diagnostics.event(event=reason, **info)
         # A menu observation is not a fabricated zero-reward combat action.
         raise SamplingInterrupted(episode_end=info)
 
@@ -692,13 +820,88 @@ class TouhouEnv(gym.Env):
             except OSError as error:
                 self.status(stage_log_error=str(error))
         self.status(stage_id=frame.stage_id, stage_label=stage_label(frame.stage_id),
-                    stage_seconds=0., stage_transition=event)
+                    stage_seconds=0., stage_changes=self.stage_changes, stage_transition=event,
+                    game_phase=phase_of(frame), game_phase_evidence=frame.phase_evidence,
+                    native_tick=frame.tick, game_settings=observed_settings(frame))
+        control = getattr(self, 'training_control', None)
+        if control and control.budget_reached and self._confirmed_context_change(before, frame):
+            self.release_input()
+            self.current = frame
+            story_clear = (before.game_mode == frame.game_mode == 'story' and before.stage_id < 6
+                           and frame.stage_id == before.stage_id + 1
+                           and before.difficulty == frame.difficulty and before.character == frame.character)
+            control.check_budget(boundary='stage_complete' if story_clear else 'stage_ended')
 
-    def _rebase_sampling(self, frame, before):
+    @staticmethod
+    def _confirmed_context_change(before, frame):
+        return (before is not None and before.stage_id is not None and frame.stage_id is not None
+                and frame.stage_active and context_changed(before, frame)
+                and all(getattr(before, key) is None or getattr(frame, key) is not None
+                        for key in ('difficulty', 'character', 'game_mode')))
+
+    def _stage_transition_pending(self, frame, before):
+        if getattr(before, 'game_mode', None) not in ('story', 'practice') or before.stage_id is None or frame.paused:
+            return False
+        phase = phase_of(frame)
+        if phase == 'result':
+            return before.game_mode == 'story' and self._story_end_reason(frame, before) is None
+        if not frame.stage_active:
+            return phase in ('unknown', 'menu_transition')
+        if phase not in ('unknown', 'combat', 'boss', 'script_wait'):
+            return False
+        return frame.stage_id is None or any(getattr(before, key) is not None and getattr(frame, key) is None
+                                             for key in ('difficulty', 'character', 'game_mode'))
+
+    def _check_sampling_scene(self, frame, before, *, death_probe_tick=None):
+        self._round_result(frame, before, death_probe_tick=death_probe_tick)
+        if self._stage_transition_pending(frame, before):
+            self._rebase_sampling(frame, before, death_probe_tick=death_probe_tick)
+        phase = phase_of(frame)
+        control = getattr(self, 'training_control', None)
+        if phase == 'continue' and control:
+            control.check_budget(boundary='stage_ended')
+        if phase in ('dialogue', 'script_wait', 'pause') and self._confirmed_context_change(before, frame):
+            if not frame.paused or (control and control.budget_reached):
+                self._rebase_sampling(self._full_frame(frame), before, death_probe_tick=death_probe_tick)
+
+    def _await_stage_transition(self, frame, before, death_probe_tick):
+        """Hold the old context until the native stage or result is known."""
+        self.status(phase=msg('console.stage_transition'), game_phase='stage_transition',
+                    stage_id=None, stage_label=None, stage_seconds=None,
+                    game_settings=None, game_phase_evidence=getattr(frame, 'phase_evidence', {}),
+                    message=msg('backend.waiting_for_stage_or_result'))
+        control = getattr(self, 'training_control', None)
+        was_sampling = getattr(self, '_sampling', False)
+        self._sampling = True
+        try:
+            with control.suspended_budget(scene_step=self.total_steps) if control else nullcontext():
+                deadline = time.monotonic() + 25
+                frame = self._full_frame(frame)
+                while True:
+                    self._check_sampling_control()
+                    self._round_result(frame, before, death_probe_tick=death_probe_tick)
+                    if not self._stage_transition_pending(frame, before) or time.monotonic() >= deadline:
+                        break
+                    self._wait(.025)
+                    frame = self.reader.read()
+                    if frame.state == 2 and death_probe_tick is None:
+                        death_probe_tick = frame.tick
+        finally:
+            self._sampling = was_sampling
+        if not frame.stage_active or frame.paused or frame.stage_id is None or self._stage_transition_pending(frame, before):
+            if control:
+                control.check_budget(boundary='time_limit')
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
+        return frame
+
+    def _rebase_sampling(self, frame, before, *, death_probe_tick=None):
         # A reset of the native manager clock does not mean the process/model
         # failed. The interrupted action cannot be attributed to either side
         # of that boundary, so re-observe without inventing a reward or reset.
+        self._round_result(frame, before, death_probe_tick=death_probe_tick)
         self.keys.release()
+        if self._stage_transition_pending(frame, before):
+            frame = self._await_stage_transition(frame, before, death_probe_tick)
         stage_boundary = context_changed(before, frame)
         if stage_boundary:
             self._record_stage_context(frame, before)
@@ -709,7 +912,10 @@ class TouhouEnv(gym.Env):
         self.last_action = None
         self._observe_control(frame, None)
         self.status(phase=msg('backend.realigning_the_game_observation'), message=msg('backend.the_stage_changed_training_segments_were_separated') if stage_boundary else msg('backend.the_game_timer_reset_sampling_resumed_with'),
-                    game_settings=observed_settings(frame),
+                    game_settings=observed_settings(frame), game_phase=phase_of(frame),
+                    game_phase_evidence=frame.phase_evidence, native_tick=frame.tick,
+                    stage_id=frame.stage_id, stage_label=stage_label(frame.stage_id),
+                    stage_seconds=round(getattr(self, 'stage_ticks', 0)/60, 2),
                     sampling_timing={"event": "stage_context_change" if stage_boundary else "clock_reset", "before_tick": before.tick,
                                      "after_tick": frame.tick, "delta": frame.tick-before.tick})
         setup = getattr(self, 'game_setup', None)
@@ -722,11 +928,13 @@ class TouhouEnv(gym.Env):
         self.keys.release()
         self.last_action=None
         control=getattr(self,'training_control',None)
-        with control.suspended_budget() if control else nullcontext():
+        previous = getattr(self, 'current', None)
+        with control.suspended_budget(scene_step=self.total_steps) if control else nullcontext():
             while True:
                 self.lease()
                 self._check_sampling_control()
                 f=self.reader.read()
+                self._check_sampling_scene(f, previous)
                 phase=phase_of(f)
                 if phase not in ('dialogue','script_wait'):
                     break
@@ -742,7 +950,6 @@ class TouhouEnv(gym.Env):
                     self.keys.release()
                     self._wait(.025)
         self.keys.release()  # Force a new Z down edge on return to combat.
-        previous = getattr(self, 'current', None)
         if context_changed(previous, f):
             self._rebase_sampling(f, previous)
         self.current=f
@@ -753,10 +960,19 @@ class TouhouEnv(gym.Env):
         raise SamplingInterrupted()
 
     def _step(self, action):
+        before, decision_plan = self._prepare_action()
+        sample = self._capture_action(action, before, decision_plan)
+        return self._record_transition(sample)
+
+    def _prepare_action(self):
+        """Check authorization, budget, and game context before any policy input."""
         self.lease()
         self._check_sampling_control()
         before = self.current or self.reader.read()
-        self._practice_result(before)
+        self._check_sampling_scene(before, before)
+        control = getattr(self, 'training_control', None)
+        if control:
+            control.check_budget(before)
         decision_plan = self.builder.last_plan
         if phase_of(before) in ('dialogue','script_wait'):
             self._advance_dialogue()
@@ -765,11 +981,26 @@ class TouhouEnv(gym.Env):
         setup = getattr(self, 'game_setup', None)
         if setup is not None and not setup.matches(before):
             self._verify_setup(before)
+        return before, decision_plan
+
+    def _check_action_capture(self, frame, before, baseline, timing, death_probe_tick):
+        self._check_sampling_scene(frame, before, death_probe_tick=death_probe_tick)
+        timing.observe(frame)
+        if phase_of(frame) in ('dialogue', 'script_wait'):
+            self._advance_dialogue()
+        if frame.paused or not frame.stage_active:
+            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes_2'))
+        if frame.tick < baseline.tick or context_changed(baseline, frame):
+            self._rebase_sampling(self._full_frame(frame), before)
+
+    def _capture_action(self, action, before, decision_plan):
+        """Send the sampled action and validate its post-dispatch captures."""
         previous_action = getattr(self, "last_action", None)
         previous_keys = (set(self.keys.held) if hasattr(self.keys, 'held') else
                          action_keys(previous_action) if previous_action is not None else set())
         actual_previous_action = movement_action(previous_keys)
-        requested_keys = action_keys(int(action))
+        action = int(action)
+        requested_keys = action_keys(action)
         if hasattr(self.keys,'reconcile'):
             self.keys.reconcile('z')
         switch_started = clock_ns()
@@ -791,56 +1022,49 @@ class TouhouEnv(gym.Env):
         # transition still includes real pre-dispatch events; they are logged
         # and the pending previous action is part of the policy observation.
         dispatched = self._read_control()
-        self._practice_result(dispatched)
         death_probe_tick = dispatched.tick if dispatched.state == 2 else None
-        timing.observe(dispatched)
-        if phase_of(dispatched) in ('dialogue','script_wait'):
-            self._advance_dialogue()
-        if dispatched.paused or not dispatched.stage_active:
-            self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes_2'))
-        if dispatched.tick < before.tick or context_changed(before, dispatched):
-            self._rebase_sampling(self._full_frame(dispatched), before)
+        self._check_action_capture(dispatched, before, before, timing, death_probe_tick)
         deadline = time.monotonic() + .4
-        f = dispatched
-        while True:
-            if f.tick >= dispatched.tick + 2 or f.state == 2:
-                break
+        after = dispatched
+        hold_until_tick = dispatched.tick + 2
+        while after.tick < hold_until_tick and after.state != 2:
             self._wait(.002)
-            f = self._read_control()
-            self._practice_result(f)
-            if f.state == 2:death_probe_tick = f.tick
-            timing.observe(f)
-            if phase_of(f) in ('dialogue','script_wait'):
-                self._advance_dialogue()
-            if f.paused or not f.stage_active:
-                self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes_2'))
-            if f.tick < dispatched.tick or context_changed(dispatched, f):
-                self._rebase_sampling(self._full_frame(f), before)
-            if f.tick >= dispatched.tick + 2 or f.state == 2:
+            after = self._read_control()
+            if after.state == 2:
+                death_probe_tick = after.tick
+            self._check_action_capture(after, before, dispatched, timing, death_probe_tick)
+            if after.tick >= hold_until_tick or after.state == 2:
                 break
             if time.monotonic() > deadline:
                 self._pause_sampling(msg('backend.the_game_timer_has_not_advanced_resume'))
-        if not isinstance(f, Frame):
-            f = self._full_frame(f)
-            timing.observe(f)
-        self._practice_result(f)
-        if phase_of(f) in ('dialogue','script_wait'):
+        if not isinstance(after, Frame):
+            after = self._full_frame(after)
+            timing.observe(after)
+        self._check_sampling_scene(after, before, death_probe_tick=death_probe_tick)
+        if phase_of(after) in ('dialogue', 'script_wait'):
             self._advance_dialogue()
-        if f.paused or not f.stage_active:
+        if after.paused or not after.stage_active:
             self._pause_sampling(msg('backend.the_game_is_paused_or_changing_scenes'))
-        crossed_boundary = f.tick < before.tick or context_changed(before,f)
-        if crossed_boundary:
-            self._rebase_sampling(f,before)
+        if after.tick < before.tick or context_changed(before, after):
+            self._rebase_sampling(after, before)
+        return _ActionSample(action=action, before=before, after=after, dispatch_tick=dispatched.tick,
+                             death_probe_tick=death_probe_tick, previous_action=previous_action,
+                             previous_keys=previous_keys, actual_previous_action=actual_previous_action,
+                             decision_plan=decision_plan)
+
+    def _record_transition(self, sample):
+        """Commit a valid transition and prepare the next policy observation."""
+        before, f, action = sample.before, sample.after, sample.action
         delta = f.tick - before.tick
         # A lightweight sample can observe the real Miss before the complete
         # pool capture reaches the respawn frame. Do not erase that event.
-        died = f.state == 2 or death_probe_tick is not None
+        died = f.state == 2 or sample.death_probe_tick is not None
         # Scheduling/inference delays naturally make an action last longer.
         # Use elapsed native ticks instead of treating >15 as a fatal error.
         # Accumulation also survives native counter resets and excludes menus.
         elapsed_ticks = getattr(self, "episode_ticks", max(0, before.tick-self.start_tick)) + delta
         seconds = elapsed_ticks / 60
-        feedback = self.reward_tracker.step(f, int(action), died)
+        feedback = self.reward_tracker.step(f, action, died)
         reward = feedback.total
         truncated = bool(self.episode_seconds and seconds >= self.episode_seconds)
         self.current = f
@@ -850,14 +1074,14 @@ class TouhouEnv(gym.Env):
         self.total_steps += 1
         self.episode_steps += 1
         self._decision_refresh_used = False
-        self.last_action = int(action)
-        self._observe_control(f, int(action))
-        latency = timing.finish()
+        self.last_action = action
+        self._observe_control(f, action)
+        latency = self._timing().finish()
         diagnostics = getattr(self,'diagnostics',None)
         view = getattr(diagnostics, 'battle_view', None)
-        if (view is not None and view.demand is not None and not (died or truncated or crossed_boundary)
+        if (view is not None and view.demand is not None and not (died or truncated)
                 and phase_of(before) in ('combat', 'boss') and phase_of(f) in ('combat', 'boss')):
-            view.capture(before, decision_plan, int(action), latency['game_input_state'], self.total_steps)
+            view.capture(before, sample.decision_plan, action, latency['game_input_state'], self.total_steps)
         planner = self.builder.planner
         if planner is not None:
             planner.record_latency(latency)
@@ -865,9 +1089,29 @@ class TouhouEnv(gym.Env):
         observation = self.builder.build(f)
         latency['next_observation_build_ms'] = (clock_ns()-build_started)/1e6
         info_started = clock_ns()
+        info = self._transition_info(sample, observation, feedback, latency, seconds, died, truncated)
+        self.episode_bombs_used = getattr(self, 'episode_bombs_used', 0) + info['bomb_consumed']
+        info['episode_bombs_used'] = self.episode_bombs_used
+        if died or truncated:
+            self.keys.release()
+            info['episode'] = {'r': self.episode_return, 'l': self.episode_steps, 't': seconds}
+            info['episode_diagnostics'] = self.reward_tracker.diagnostics()
+            info['episode_diagnostics'].update(stage_id=info['stage_id'], stage_label=info['stage_label'],
+                                               stage_seconds=info['stage_seconds'], stage_changes=info['stage_changes'])
+        if diagnostics is not None:
+            diagnostics.record(info, getattr(self, 'decision_context', {}).get('training_step') or self.total_steps)
+        self._publish_transition(f, reward, info, diagnostics)
+        self.freshness_warning = None
+        self.record_pre_policy_work(env_diagnostics_ms=(clock_ns()-info_started)/1e6)
+        if died or truncated:
+            self._terminal_observation = observation
+        return observation, reward, died, truncated, info
+
+    def _transition_info(self, sample, observation, feedback, latency, seconds, died, truncated):
+        before, f, decision_plan = sample.before, sample.after, sample.decision_plan
         decision_planning = dict(decision_plan.diagnostics) if decision_plan is not None else {"enabled": False}
         if decision_plan is not None and decision_plan.diagnostics.get("enabled"):
-            movement = int(action) % 18
+            movement = sample.action % 18
             decision_planning.update(chosen_movement=movement,
                     chosen_allowed=bool(decision_plan.features[movement, 1]),
                     chosen_predicted_path=decision_plan.paths[movement].tolist(),
@@ -882,7 +1126,7 @@ class TouhouEnv(gym.Env):
         planning = self.builder.last_plan.diagnostics if self.builder.last_plan is not None else {"enabled": False}
         movement = {"dx": feedback.dx, "dy": feedback.dy,
                     "blocked_fraction": feedback.blocked_fraction}
-        info = {"survival_seconds": seconds, "died": died, "native_tick": f.tick,
+        return {"survival_seconds": seconds, "died": died, "native_tick": f.tick,
                 'game_settings':observed_settings(f),
                 'stage_id': f.stage_id, 'stage_label': stage_label(f.stage_id),
                 'decision_stage_id': before.stage_id, 'stage_seconds': self.stage_ticks/60,
@@ -895,19 +1139,19 @@ class TouhouEnv(gym.Env):
                 'unsampled_combat_seconds':getattr(self,'unsampled_ticks',0)/60,
                 'decision_lasers':before.lasers,'next_lasers':f.lasers,
                 'episode_end_reason':'death' if died else 'time_limit' if truncated else None,
-                "native_tick_before": before.tick, "native_tick_delta": delta,
-                "native_tick_dispatch": dispatched.tick,
-                "pre_dispatch_ticks": dispatched.tick-before.tick,
-                "action_hold_ticks": f.tick-dispatched.tick,
-                "previous_action": previous_action,
-                'actual_previous_action':actual_previous_action,
-                'actual_previous_keys':sorted(previous_keys),
+                "native_tick_before": before.tick, "native_tick_delta": f.tick-before.tick,
+                "native_tick_dispatch": sample.dispatch_tick,
+                "pre_dispatch_ticks": sample.dispatch_tick-before.tick,
+                "action_hold_ticks": f.tick-sample.dispatch_tick,
+                "previous_action": sample.previous_action,
+                'actual_previous_action':sample.actual_previous_action,
+                'actual_previous_keys':sorted(sample.previous_keys),
                 'goal':getattr(self,'goal','survival'),
                 'death_evidence':'full_snapshot' if f.state==2 else 'control_sample' if died else None,
-                'death_probe_tick':death_probe_tick,
+                'death_probe_tick':sample.death_probe_tick,
                 'bomb_probability':getattr(self,'decision_context',{}).get('bomb_probability'),
                 "action_timing_version": ACTION_TIMING_VERSION,
-                "action": int(action),
+                "action": sample.action,
                 "position": {"x": f.x, "y": f.y}, "movement": movement,
                 "behavior": {"corner_exposure": feedback.corner_exposure, "loiter": feedback.loiter,
                              "item_potential": feedback.item_potential}, "visible_items": len(f.items),
@@ -932,34 +1176,24 @@ class TouhouEnv(gym.Env):
                                  if not died and before.resources is not None and f.resources is not None else 0,
                 "reward_version": REWARD_VERSION, "reward_components": feedback.components,
                 "threat": feedback.threat}
-        self.episode_bombs_used = getattr(self,'episode_bombs_used',0)+info['bomb_consumed']
-        info['episode_bombs_used'] = self.episode_bombs_used
-        if died or truncated:
-            self.keys.release()
-            info["episode"] = {"r": self.episode_return, "l": self.episode_steps, "t": seconds}
-            info["episode_diagnostics"] = self.reward_tracker.diagnostics()
-            info['episode_diagnostics'].update(stage_id=f.stage_id, stage_label=stage_label(f.stage_id),
-                                               stage_seconds=self.stage_ticks/60,
-                                               stage_changes=getattr(self, 'stage_changes', 0))
-        if diagnostics is not None:
-            diagnostics.record(info,getattr(self,'decision_context',{}).get('training_step') or self.total_steps)
+
+    def _publish_transition(self, f, reward, info, diagnostics):
         self.status(phase=msg('backend.collecting_policy_samples'), message=msg('backend.the_policy_selects_direction_and_focus_speed'),
-                    game_settings=observed_settings(f),
-                    stage_id=f.stage_id, stage_label=stage_label(f.stage_id),
-                    stage_seconds=round(self.stage_ticks/60, 2), stage_changes=getattr(self,'stage_changes',0),
-                    game_phase=phase_of(f),game_phase_evidence=f.phase_evidence,
-                    player_shots=f.player_shots,visible_lasers=len(f.lasers),
-                    env_steps=self.total_steps, survival_seconds=round(seconds, 2),
-                    native_tick=f.tick, native_tick_before=before.tick, native_tick_delta=delta,
-                    native_tick_dispatch=dispatched.tick, pre_dispatch_ticks=dispatched.tick-before.tick,
-                    action_hold_ticks=f.tick-dispatched.tick, action_timing_version=ACTION_TIMING_VERSION,
+                    game_settings=info['game_settings'],
+                    stage_id=info['stage_id'], stage_label=info['stage_label'],
+                    stage_seconds=round(info['stage_seconds'], 2), stage_changes=info['stage_changes'],
+                    game_phase=info['game_phase'], game_phase_evidence=info['game_phase_evidence'],
+                    player_shots=info['player_shots'], visible_lasers=info['visible_lasers'],
+                    env_steps=self.total_steps, survival_seconds=round(info['survival_seconds'], 2),
+                    native_tick=info['native_tick'], native_tick_before=info['native_tick_before'],
+                    native_tick_delta=info['native_tick_delta'], native_tick_dispatch=info['native_tick_dispatch'],
+                    pre_dispatch_ticks=info['pre_dispatch_ticks'], action_hold_ticks=info['action_hold_ticks'],
+                    action_timing_version=info['action_timing_version'],
                     bullets=len(f.bullets), game_pid=self.reader.window.pid,
-                    bullet_observation=coverage,
-                    planning=decision_planning,
-                    reward_version=REWARD_VERSION, reward=round(reward, 4),
-                    reward_components=feedback.components, threat=round(feedback.threat, 4),
-                    movement=movement,
-                    corner_exposure=round(feedback.corner_exposure, 4),
+                    bullet_observation=info['bullet_observation'], planning=info['planning'],
+                    reward_version=info['reward_version'], reward=round(reward, 4),
+                    reward_components=info['reward_components'], threat=round(info['threat'], 4),
+                    movement=info['movement'], corner_exposure=round(info['behavior']['corner_exposure'], 4),
                     loiter_seconds=round(self.reward_tracker.loiter_ticks / 60, 3),
                     power_gained=self.reward_tracker.power_gained,
                     point_items_gained=self.reward_tracker.point_items_gained,
@@ -967,27 +1201,38 @@ class TouhouEnv(gym.Env):
                     graze_with_risk=self.reward_tracker.graze_with_risk,
                     risk_estimate=info["risk_estimate"],
                     state_reader=info["state_reader"],
-                    input_latency=latency,
+                    input_latency=info['input_latency'],
                     goal=info['goal'],episode_bombs_used=self.episode_bombs_used,
                     inference=info['inference'],diagnostics=diagnostics.status() if diagnostics is not None else None,
                     enemies=len(f.enemies),
                     boss_hp=int(sum(row[3] for row in f.enemies if row[7])),
                     boss_max_hp=int(sum(row[4] for row in f.enemies if row[7])),
                     enemy_damage=self.reward_tracker.enemy_damage, boss_damage=self.reward_tracker.boss_damage,
-                    resources=({"power": f.resources.power, "bombs": f.resources.bombs,
-                                "lives": f.resources.lives, "score": f.resources.score,
-                                "point_items": f.resources.point_items, "graze": f.resources.graze}
-                               if f.resources is not None else None),
+                    resources=info['resources'] or None,
                     wall_push_seconds=round(self.reward_tracker.wall_push_ticks / 60, 3))
-        self.freshness_warning = None
-        self.record_pre_policy_work(env_diagnostics_ms=(clock_ns()-info_started)/1e6)
-        return observation, reward, died, truncated, info
 
     def close(self):
         try:
-            self.keys.release()
-            if self.reader.window.focused:
-                self.pause()
+            self.release_input()
+            if not self.reader.window.focused:
+                return
+            self.lease()
+            frame = self.reader.read_control()
+            if not frame.stage_active or frame.paused or phase_of(frame) in ('result', 'continue'):
+                return
+            # The session is over. Leave a running game paused if possible,
+            # without regaining focus or waiting for operator input.
+            self.keys.set({'esc'})
+            try:
+                deadline = time.monotonic() + .25
+                while self.reader.window.focused and time.monotonic() < deadline:
+                    self.lease()
+                    frame = self.reader.read_control()
+                    if frame.paused or not frame.stage_active:
+                        break
+                    time.sleep(.005)
+            finally:
+                self.keys.release()
         finally:
             self.reader.close()
             diagnostics = getattr(self,'diagnostics',None)

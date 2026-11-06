@@ -26,13 +26,16 @@ def record_failure(run_dir: Path, exc: BaseException):
 
 class Heartbeat:
     def __init__(self, run_dir: Path, shared_lease: SharedLease | None = None,
-                 safety: SafetyConfig | None = None):
+                 safety: SafetyConfig | None = None, *, track_session=False):
         self.run_dir = run_dir
         self.safety = safety or SafetyConfig()
         self.data = {"phase": msg('backend.loading_training_modules'), "steps": 0, "episodes": 0, "pid": os.getpid()}
         self.lock = threading.Lock()
         self.error = None
         self.done = threading.Event()
+        self._wake = threading.Event()
+        self._track_session = track_session
+        self._session_time = {}
         self.last_lease_check = 0.0
         self.last_valid_permit = None
         self.lease_identity = None
@@ -44,17 +47,29 @@ class Heartbeat:
     def update(self, **values):
         with self.lock:
             self.data.update(values)
+        if self._track_session and ('clock_started' in values or 'clock_paused' in values
+                                    or 'overtime_stage' in values):
+            self._wake.set()
+
+    def session_time(self):
+        return self._session_time
 
     def _run(self):
         while not self.done.is_set():
+            self._wake.clear()
             try:
                 with self.lock:
                     snapshot = {**self.data, "monotonic": time.monotonic(), "time": timestamp()}
                 atomic_json(self.run_dir / "worker.json", snapshot)
+                if self._track_session:
+                    status = read_json(self.run_dir / 'status.json')
+                    timing = status.get('session_time') if isinstance(status, dict) else None
+                    if isinstance(timing, dict):
+                        self._session_time = timing
             except Exception as exc:
                 self.error = exc
                 return
-            self.done.wait(.20)
+            self._wake.wait(.20)
 
     def lease(self):
         now = time.monotonic()
@@ -96,6 +111,7 @@ class Heartbeat:
 
     def close(self):
         self.done.set()
+        self._wake.set()
         self.thread.join(timeout=.5)
         if not self.error:
             with self.lock:
@@ -205,7 +221,8 @@ def main():
         from .game_settings import parse_setup
         config = replace(config, game_setup=parse_setup(json.loads(args.game_setup)))
     lease = SharedLease(args.lease_name)
-    heartbeat = Heartbeat(run_dir, lease, config.safety)
+    game_session = args.mode in ('train', 'play', 'evaluate')
+    heartbeat = Heartbeat(run_dir, lease, config.safety, track_session=game_session)
     env = None
     try:
         # Wait for the supervisor to attach the kill-on-close Job Object.
@@ -244,7 +261,7 @@ def main():
         from .environment import TouhouEnv
         env = TouhouEnv(config, heartbeat.lease, heartbeat.update)
         env.run_dir = run_dir
-        if args.mode in ('train','play','evaluate'):
+        if game_session:
             env.enable_diagnostics(run_dir,args.mode)
         heartbeat.update(game_pid=env.reader.window.pid)
         if args.mode == "calibrate":
@@ -252,10 +269,12 @@ def main():
         else:
             from .learning import train, evaluate, load_model
             if args.mode == "train":
-                train(config, env, run_dir, args.minutes, heartbeat.update, heartbeat.lease, args.model)
+                train(config, env, run_dir, args.minutes, heartbeat.update, heartbeat.lease, args.model,
+                      session_time=heartbeat.session_time)
             else:
                 from .control import TrainingControl
-                env.training_control = TrainingControl(run_dir, heartbeat.lease, heartbeat.update)
+                env.training_control = TrainingControl(run_dir, heartbeat.lease, heartbeat.update,
+                                                       session_time=heartbeat.session_time)
                 model = load_model(Path(args.model or ROOT / "models" / "latest.zip"), env, config.device)
                 from .inference import PolicyRunner
                 model.decision_runner = PolicyRunner(model.policy, config.inference_backend)
@@ -267,7 +286,7 @@ def main():
                 else:
                     obs, _ = env.reset(options={"restart": False})
                     env.training_control.start()
-                    while env.training_control.active_seconds < args.minutes * 60:
+                    while not env.training_control.target_reached:
                         if env.training_control.gate(env):
                             obs = env.builder.build(env.current)
                         policy_started = clock_ns()
@@ -307,9 +326,10 @@ def main():
         if env is not None:
             try:
                 env.close()
-            except Exception:
+            except Exception as error:
                 from .win32 import release_all
                 release_all()
+                heartbeat.update(cleanup_error=str(error))
         heartbeat.close()
         lease.close()
 

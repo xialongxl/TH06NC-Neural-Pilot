@@ -1,16 +1,19 @@
 """HTTP contract and session controls against isolated files and fake workers."""
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 from th06ai.config import Config
-from th06ai.console_service import ConsoleService, build_command
+from th06ai import console_service
+from th06ai.console_service import ConsoleError, ConsoleService, build_command
 from th06ai.files import atomic_json
 from th06ai.native import SHA256
 from th06ai.web_console import create_app
@@ -127,6 +130,126 @@ def test_web_start_activates_the_game_without_waiting_for_worker_loading(setup):
     assert len(calls) == len(order) == 1 and service.pending_run is not None
 
 
+@pytest.mark.parametrize(('read', 'filename'), [('logs', 'worker.log'), ('snapshot', 'gpu.jsonl')])
+def test_slow_display_reads_do_not_hold_the_stop_request(setup, monkeypatch, read, filename):
+    root, _, service, _, calls, _ = setup
+    run = session(root)
+    entered, release = threading.Event(), threading.Event()
+    tail = console_service.tail_text
+
+    def delayed_tail(path, *, limit):
+        if path.name == filename:
+            entered.set()
+            assert release.wait(5)
+        return tail(path, limit=limit)
+
+    monkeypatch.setattr(console_service, 'tail_text', delayed_tail)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reading = pool.submit(getattr(service, read))
+        try:
+            assert entered.wait(2)
+            pool.submit(service.control, 'stop').result(timeout=2)
+            assert (run / 'STOP').is_file() and not calls
+        finally:
+            release.set()
+        assert reading.result(timeout=2)['run_dir'] == str(run)
+
+
+def test_stop_can_reach_the_pending_run_while_window_activation_waits(setup):
+    _, _, service, _, calls, _ = setup
+    entered, release = threading.Event(), threading.Event()
+
+    def focus(_):
+        entered.set()
+        assert release.wait(5)
+        return {'activated': True}
+
+    service._focus_fn = focus
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        starting = pool.submit(service.start, 'train', 1)
+        try:
+            assert entered.wait(2)
+            pool.submit(service.control, 'stop').result(timeout=2)
+            assert (service.pending_run / 'STOP').is_file()
+            assert len(calls) == 1
+        finally:
+            release.set()
+        assert starting.result(timeout=2)['foreground']['activated']
+
+
+@pytest.mark.parametrize('change', ['another_start', 'shutdown', 'model_replaced'])
+def test_start_revalidates_after_off_lock_checkpoint_verification(setup, monkeypatch, change):
+    _, checkpoint, service, _, calls, initial = setup
+    verified, release = threading.Event(), threading.Event()
+    inspect = console_service.inspect_checkpoint
+
+    def delayed_verify(path, *, verify=False):
+        result = inspect(path, verify=verify)
+        if verify:
+            verified.set()
+            assert release.wait(5)
+        return result
+
+    monkeypatch.setattr(console_service, 'inspect_checkpoint', delayed_verify)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        resuming = pool.submit(service.start, 'resume', 1, initial['selected_model_id'])
+        try:
+            assert verified.wait(2)
+            if change == 'another_start':
+                assert pool.submit(service.start, 'monitor', 1).result(timeout=2)['mode'] == 'monitor'
+            elif change == 'shutdown':
+                assert pool.submit(service.request_shutdown).result(timeout=2)['state'] == 'waiting'
+            else:
+                checkpoint.write_bytes(b'different-checkpoint-after-hash-validation')
+        finally:
+            release.set()
+        with pytest.raises(ConsoleError) as rejected:
+            resuming.result(timeout=2)
+        assert rejected.value.status_code == 409
+    assert len(calls) == int(change == 'another_start')
+
+
+def test_game_probe_allows_state_reads_and_closes_before_launch(setup, monkeypatch):
+    from types import SimpleNamespace
+    from th06ai import native
+
+    _, _, service, _, calls, _ = setup
+    entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+    class Reader:
+        def __init__(self, path):
+            pass
+
+        def read(self):
+            entered.set()
+            assert release.wait(5)
+            return SimpleNamespace(phase='pause', paused=True, tick=10, menu_selection=0, menu_ready=True,
+                                   phase_evidence={}, player_shots=0, lasers=[])
+
+        def close(self):
+            closed.set()
+
+    popen = service._popen
+
+    def launch(*args, **kwargs):
+        assert closed.is_set()
+        return popen(*args, **kwargs)
+
+    monkeypatch.setattr(native, 'GameReader', Reader)
+    monkeypatch.setattr(service, '_popen', launch)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        probing = pool.submit(service.probe_game)
+        try:
+            assert entered.wait(2)
+            starting = pool.submit(service.start, 'train', 1)
+            assert pool.submit(service.snapshot).result(timeout=2)['game_probe'] is None
+        finally:
+            release.set()
+        assert probing.result(timeout=2)['available']
+        assert starting.result(timeout=2)['mode'] == 'train'
+    assert len(calls) == 1
+
+
 def test_explicit_goal_is_validated_and_forwarded_without_new_or_hidden_session(setup):
     root,checkpoint,service,client,calls,initial=setup
     rejected=client.post('/api/sessions',json={'mode':'resume','minutes':1,
@@ -173,7 +296,8 @@ def test_reading_and_page_reload_never_start_or_touch_training(setup):
     assert not initial["active"]
 
 
-def test_resume_passes_exact_checkpoint_and_startup_can_be_stopped(setup, monkeypatch):
+@pytest.mark.parametrize('marker', ['STOP', 'FINISH'])
+def test_resume_passes_exact_checkpoint_and_startup_can_be_cancelled(setup, monkeypatch, marker):
     root, checkpoint, service, client, calls, initial = setup
     result = client.post("/api/sessions", json={"mode": "resume", "minutes": 10, "model_id": initial["selected_model_id"]})
     assert result.status_code == 202
@@ -185,10 +309,13 @@ def test_resume_passes_exact_checkpoint_and_startup_can_be_stopped(setup, monkey
     assert client.get("/api/state").json()["busy"]
     assert client.post("/api/sessions", json={"mode": "train", "minutes": 1}).status_code == 409
     assert len(calls) == 1
-    assert client.post("/api/session/stop").status_code == 200
-    assert (run / "STOP").exists(), "stop must work before the guard publishes its pointer"
+    if marker == 'STOP':
+        assert client.post('/api/session/stop').status_code == 200
+    else:
+        assert service.request_shutdown()['state'] == 'waiting'
+    assert (run / marker).exists(), "startup must accept cancellation before the guard publishes its pointer"
     # The real CLI must preserve cancellation that raced its initialization,
-    # rather than rejecting the STOP-only directory as an already used run.
+    # rather than rejecting the marker-only directory as an already used run.
     from types import SimpleNamespace
     from th06ai import __main__, supervisor
     delegated = []

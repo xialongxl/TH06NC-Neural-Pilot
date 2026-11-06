@@ -107,7 +107,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [rewards.py](../th06ai/rewards.py) | RewardTracker、资源预算、驻留／顶墙、奖励分项 | 奖励 v9、gamma |
 | [planner_spec.py](../th06ai/planner_spec.py) | 轻量规划常量及 PlanningConfig | 保护进程可安全导入 |
 | [navigation.py](../th06ai/navigation.py) | 导航／决策列及出口、条件 B 先验常量 | navigation/decision |
-| [planning.py](../th06ai/planning.py) | 连续几何、beam 搜索、时序探测、回退、原生选择 | PlanResult／规划 v7 |
+| [planning.py](../th06ai/planning.py) | 连续几何、beam 搜索、时序探测、回退、原生选择 | PlanResult／规划 v8 |
 | [acceleration.py](../th06ai/acceleration.py) | 可选扩展发现、拥有型序列化、RustKeyController | API v2／搜索 v1 |
 | [native_planner/__init__.py](../th06ai/native_planner/__init__.py) | 独立搜索扩展包入口 | 无二进制时仍可导入包 |
 | [native_runtime/__init__.py](../th06ai/native_runtime/__init__.py) | ABI v3 扩展包入口 | 只读批量采集、输入和几何；无二进制时回退参考路径 |
@@ -125,6 +125,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [pausable_ppo.py](../th06ai/pausable_ppo.py) | 单环境 rollout gate、真实转移、边界自举 | SB3 派生流程 |
 | [ppo_update.py](../th06ai/ppo_update.py) | 资源策略 PPO 更新与探索损失 | 与 ResourcePolicy 保持一致 |
 | [learning.py](../th06ai/learning.py) | 模型创建／加载／迁移／保存，回调与独立评估 | 不删除原模型，安全边界更新 |
+| [evaluation.py](../th06ai/evaluation.py) | 独立评估的关卡、输入确认和 Boss Power 证据 | 复用已提交的观测，区分切关与结算 |
 | [model_store.py](../th06ai/model_store.py) | 检查点兼容检查、目录索引、内容寻址保留 | ZIP + 同名 JSON |
 | [diagnostic_writer.py](../th06ai/diagnostic_writer.py) | CPU 诊断进程、有界队列、轨迹压缩与关闭收尾 | 私有管道，不打开游戏或 GPU |
 | [diagnostics.py](../th06ai/diagnostics.py) | 原始快照／轻量样本环、死亡归档、有界异步写盘 | 非关键诊断失败标记缺失 |

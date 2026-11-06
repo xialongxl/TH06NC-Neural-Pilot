@@ -44,10 +44,11 @@ class PausablePPO(PPO):
         rollout_buffer.gae_ready = False
         callback.on_rollout_start()
         n_steps = 0
+        refresh_needed = False
         while n_steps < n_rollout_steps:
             resumed = self.training_control.gate(self.training_game)
             pending_boundary = getattr(self.training_game, 'pending_stage_boundary', False)
-            if resumed or pending_boundary:
+            if resumed or pending_boundary or refresh_needed:
                 if pending_boundary:
                     if n_steps and not self._last_episode_starts[0]:
                         with torch.no_grad():
@@ -56,6 +57,7 @@ class PausablePPO(PPO):
                     self._last_episode_starts = np.ones(env.num_envs, dtype=bool)
                     self.training_game.pending_stage_boundary = False
                 self._refresh_observation()
+                refresh_needed = False
             policy_started = clock_ns()
             if self.decision_runner is not None:
                 decision = self.decision_runner.predict(self._last_obs, lease=self.training_control.lease)
@@ -93,8 +95,9 @@ class PausablePPO(PPO):
                     if n_steps and not self._last_episode_starts[0]:
                         rollout_buffer.rewards[n_steps-1] += self.gamma * values.detach().cpu().numpy().reshape(-1)
                     self._last_episode_starts = np.ones(env.num_envs, dtype=bool)
-                self.training_control.gate(self.training_game)
-                self._refresh_observation()
+                # Resume can discover a stage boundary. Keep _last_obs until
+                # the loop has bootstrapped the last accepted transition.
+                refresh_needed = True
                 continue
             self.num_timesteps += env.num_envs
             if bomb_probability is not None:

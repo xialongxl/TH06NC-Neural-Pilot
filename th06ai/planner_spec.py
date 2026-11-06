@@ -2,7 +2,7 @@
 from .i18n import msg
 from dataclasses import dataclass
 
-PLANNER_VERSION = 7
+PLANNER_VERSION = 8
 PLAN_MOVEMENTS = 18
 PLAN_FIELDS = ("enabled", "allowed", "clearance", "collision_time", "blocked", "goal", "utility", "logit_bias")
 PLAN_FEATURES = len(PLAN_FIELDS)

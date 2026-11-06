@@ -12,7 +12,7 @@
 | 观测布局 | 9 | `observations.py:OBSERVATION_VERSION` |
 | 奖励语义 | 9 | `rewards.py:REWARD_VERSION` |
 | 策略／炸弹结构 | 2 | `policy_spec.py:POLICY_VERSION` |
-| 规划语义 | 7 | `planner_spec.py:PLANNER_VERSION` |
+| 规划语义 | 8 | `planner_spec.py:PLANNER_VERSION` |
 | 动作计时语义 | 3 | `observations.py:ACTION_TIMING_VERSION` |
 | 输入延迟诊断记录 | 3 | `input_timing.py:InputTiming.begin` |
 | 碰撞／按键／只读采集原生 ABI | 3 | `native/src/lib.rs:API_VERSION` |
@@ -174,7 +174,19 @@ models/
 | `evaluation.json` | 完整评估报告；只在请求局数全部完成后生成 |
 | `training_summary.json` | 正常结束时的训练摘要 |
 
+`worker.json` 通过 `clock_started` 报告可起算，通过 `clock_paused` 报告人工等待。`scene_wait_step` 是自动等待开始前的累计采样步，退出后为 `null`。这些字段只描述状态。
+
+`status.json` 和 `result.json` 的 `session_time` 包含 `training_seconds`、`paused_seconds`、`budget_seconds`，均由看门狗发布。会话尚未开始计时时，前两项为 `null`。`paused_seconds` 包含人工等待与实际扣除的自动等待，后者另见 `guarded_scene_wait_seconds`。训练会话的 `worker` 子对象投影这三项供既有控制台读取。`training_summary.json` 记录 worker 写摘要时已读取的最近快照，`result.json` 则记录看门狗最后观察到的有效时长。
+
 训练 action/episode CSV 在暂停边界批量写入；急停可能使最近未刷新的行丢失。不能把 CSV 最后一行当作进程真正执行的最后一步，也不能把未完成 rollout 叫作已更新模型。
+
+### 固定检查点评估报告
+
+`report_version=1` 保留检查点 SHA-256、请求设置和领域版本，并按已结束的回合汇总。每局记录实际起始设置、是否匹配请求、最远观测关卡、Miss 与 B 消耗。`stage_progress` 分开记录首次识别关卡、首次战斗样本和首次确认匹配输入的原生 tick。进行中回合的这些事件可从 `worker.json` 的 `evaluation_round` 查看。
+
+`confirmed_stage_transitions` 要求同一回合内的完整流程、相同的已知难度和自机，以及两个连续关卡的原生身份。`rounds_clearing_stage` 只统计这种顺序切关证据。返回 Practice 选关、原生结算和超时各有自己的结束原因。末关通关仍需另行验证。
+
+Boss Power 记录采用首份可见 Boss 观测。两段之间需要至少 120 个原生 tick 的连续无 Boss 战斗观测才另开一段。出现顺序可用于同设置对照，具体角色和道中／关底身份仍需另行核对。`boss_power_summary` 列出每个关卡与观察段的有效样本数和 Power 中位数。缺失读数保留为 `null`。
 
 ### PPO NPZ
 

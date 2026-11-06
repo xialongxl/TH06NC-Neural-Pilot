@@ -68,6 +68,8 @@ The preview opens at port `18766`. CLI and legacy desktop messages use the syste
 
 Refreshing or closing the browser keeps the session running. Double-click the launcher again to reopen the existing console. You can also run `.\LaunchAI.exe shutdown` to shut it down with the same launcher.
 
+Training pauses the game briefly for PPO updates and resumes automatically. At the planned duration, the agent finishes the stage in progress before saving, with up to ten minutes of overtime. A Miss that ends the attempt also triggers the save. [Training lifecycle](docs/en/core-logic.md#3-execute-reward-update-and-save)
+
 During play, the agent uses the arrow keys, **Shift** for focus movement, **Z** to shoot, and **X** to bomb. The independent GPU watchdog continues to run during pauses. Default stop conditions include a 70°C core temperature, 90% VRAM usage, and 60 seconds of stale telemetry. [Safety configuration](docs/en/development.md#safety-settings)
 
 ## How it works

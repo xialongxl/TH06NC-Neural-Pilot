@@ -23,15 +23,16 @@ export interface Plan {
   all_routes_risky?: boolean; visible_bullets?: number;
 }
 export interface Worker {
-  game_settings?: GameSettings; requested_game_setup?: GameSetup | null;
+  game_settings?: GameSettings | null; requested_game_setup?: GameSetup | null;
   goal?: 'survival' | 'nmnb'; episode_bombs_used?: number;
   inference?: { engine?: string; total_ms?: number; p50_ms?: number; p95_ms?: number };
-  stage_id?: number | null; stage_label?: string; stage_seconds?: number; stage_changes?: number;
+  stage_id?: number | null; stage_label?: string | null; stage_seconds?: number | null; stage_changes?: number;
   game_phase?: string; game_phase_evidence?: Record<string, unknown>;
   player_shots?: number | null; visible_lasers?: number;
   focus_pending?: boolean;
   input_latency?: InputLatency;
   training_seconds?: number; budget_seconds?: number; paused_seconds?: number; steps?: number;
+  overtime_stage?: number | null; training_finish_reason?: string;
   session_steps?: number; updates?: number; episodes?: number; survival_seconds?: number;
   user_paused?: boolean; phase?: string; message?: string; model_source?: string;
   checkpoint?: string; resources?: { power?: number; bombs?: number; lives?: number };

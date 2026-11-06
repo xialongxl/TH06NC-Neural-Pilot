@@ -122,6 +122,43 @@ def test_restart_uses_observed_nc_order_and_verifies_counter(monkeypatch):
     assert env.current.tick == 181
 
 
+@pytest.mark.parametrize('outcome', ('confirmed', 'lost_focus', 'timeout', 'read_failed', 'lease_revoked'))
+def test_close_releases_input_and_bounds_the_final_pause_attempt(monkeypatch, outcome):
+    env, clock, _ = make_fake(monkeypatch)
+    events = []
+    frame = env.reader.read()
+    env.reader.close = lambda: events.append('reader_closed')
+    env.diagnostics = SimpleNamespace(close=lambda: events.append('diagnostics_closed'))
+    env.keys.set = lambda keys: events.append(set(keys))
+    env.keys.release = lambda: events.append('released')
+
+    def read():
+        if outcome == 'read_failed':
+            raise RuntimeError('game state unavailable')
+        frame.paused = outcome == 'confirmed' and {'esc'} in events
+        return frame
+
+    def sleep(seconds):
+        clock.now += seconds
+        if outcome == 'lost_focus':
+            env.reader.window.focused = False
+
+    env.reader.read_control = read
+    monkeypatch.setattr(environment.time, 'sleep', sleep, raising=False)
+    if outcome == 'lease_revoked':
+        def revoke():
+            raise RuntimeError('safety lease revoked')
+        env.lease = revoke
+    if outcome in ('read_failed', 'lease_revoked'):
+        with pytest.raises(RuntimeError):
+            env.close()
+        assert events == ['released', 'reader_closed', 'diagnostics_closed']
+    else:
+        env.close()
+        assert events == ['released', {'esc'}, 'released', 'reader_closed', 'diagnostics_closed']
+        assert clock.now <= .26
+
+
 def test_real_step_wires_reward_diagnostics_and_keeps_time_limit_nonterminal():
     before = Frame(3598, 8, 384, 3, False, False, np.array([(1, 8, 380)], np.float32),
                    (8, 16, 368, 416), True, 0)

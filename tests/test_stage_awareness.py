@@ -1,14 +1,16 @@
 """Stage identity, return isolation and zero-influence checkpoint migration."""
 import hashlib
 from dataclasses import replace
+from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
 from stable_baselines3.common.callbacks import BaseCallback
-from th06ai import learning
-from th06ai.control import SamplingInterrupted
+from th06ai import environment, learning
+from th06ai.control import FinishTraining, SamplingInterrupted, TrainingControl
 from th06ai.files import atomic_json
-from th06ai.native import SHA256
+from th06ai.game_settings import GameSetup
+from th06ai.native import ControlSample, SHA256
 from th06ai.observations import ObservationBuilder, make_observation_space
 from th06ai.pausable_ppo import PausablePPO
 from th06ai.policy import BulletEncoder, ResourcePolicy
@@ -60,6 +62,143 @@ def test_unknown_stage_remains_unknown_without_stopping():
     assert not context_changed(before, env.current)
 
 
+@pytest.fixture
+def story_handoff(tmp_path):
+    before = replace(frame(tick=9019), phase='boss', stage_id=1, game_mode='story',
+                     difficulty='normal', character='reimu_a')
+    loading = replace(before, tick=0, phase='unknown', stage_active=False, stage_id=None,
+                      game_mode=None, difficulty=None, character=None)
+    after = replace(before, tick=1, phase='combat', stage_id=2)
+    env, actions, releases, statuses = game(before, loading)
+    env.game_setup = GameSetup()
+    env.stage_ticks = env.episode_ticks = 8658
+    env.training_control = TrainingControl(tmp_path, env.lease, env.status)
+    env.reader.window.focused = True
+    return env, actions, releases, statuses, before, loading, after
+
+
+@pytest.mark.parametrize('entry', ('script_wait', 'decision_probe', 'after_dispatch'))
+def test_story_handoff_recovers_stage_one_to_two_without_pausing_or_sampling(story_handoff, entry):
+    env, actions, releases, statuses, before, loading, after = story_handoff
+    env.training_control.start()
+    # The stage number can appear before the rest of the new scene identity.
+    incomplete = replace(after, game_mode=None, difficulty=None)
+    initial = replace(before, phase='script_wait') if entry == 'script_wait' else loading
+    frames = iter((initial, loading, incomplete, after))
+    env.reader.read = lambda: next(frames, after)
+    env.reader.read_control = lambda: ControlSample(0, loading.x, loading.y, loading.state,
+        False, False, None, 'unknown', None, 0, 0, 0)
+    operation = {'script_wait': env._advance_dialogue, 'decision_probe': env.refresh_decision,
+                 'after_dispatch': lambda: env.step(0)}[entry]
+    with pytest.raises(SamplingInterrupted) as caught:
+        operation()
+    assert caught.value.stage_boundary and not (env.training_control.run_dir / 'PAUSE').exists()
+    assert env.current is after and env.reward_tracker.frame is after
+    assert env.stage_changes == 1 and env.stage_ticks == 0 and env.episode_ticks == 8658
+    assert env.total_steps == 0 and env.episode_return == 0
+    assert releases and actions == ([{'z'}] if entry == 'after_dispatch' else [])
+    assert env.last_stage_transition['before_stage'] == 1
+    assert env.last_stage_transition['after_tick'] == 1
+    assert any(status.get('game_phase') == 'stage_transition' for status in statuses)
+    assert [status['scene_wait_step'] for status in statuses if 'scene_wait_step' in status] == [0, None]
+    scene = next(status for status in reversed(statuses) if 'game_phase' in status)
+    assert scene['game_phase'] == 'combat' and scene['stage_id'] == 2
+
+
+def test_pause_and_resume_during_story_loading_keep_the_confirmed_stage(story_handoff):
+    env, actions, _, _, before, loading, after = story_handoff
+    env.reader.read = lambda: loading
+    env.pause_for_user()
+    env.resume()
+    assert env.current is before and actions == []
+    env.reader.read = lambda: after
+    env.reader.read_control = lambda: loading
+    with pytest.raises(SamplingInterrupted) as caught:
+        env.refresh_decision()
+    assert caught.value.stage_boundary and env.last_stage_transition['before_stage'] == 1
+
+
+def test_first_stage_two_pause_preserves_the_stage_one_rollout_boundary(story_handoff):
+    env, actions, _, _, before, _, after = story_handoff
+    paused = replace(after, paused=True, phase='pause', menu_selection=0)
+    advancing = replace(after, tick=2)
+    frames = iter((paused, paused, advancing))
+    env.reader.read = lambda: next(frames, advancing)
+    env.pause_for_user()
+    assert env.current is before and actions == []
+    env.resume()
+    assert env.current is advancing and actions == [{'z'}]
+    assert env.pending_stage_boundary and env.last_stage_transition['before_stage'] == 1
+    assert env.stage_changes == 1
+
+
+@pytest.mark.parametrize('entry', ('loading', 'already_paused', 'dialogue'))
+def test_overtime_stops_at_confirmed_story_handoff_before_next_stage_input(story_handoff, entry):
+    env, actions, _, statuses, before, loading, after = story_handoff
+    now = [0.]
+    control = env.training_control
+    control.budget_seconds, control.clock = 60., lambda: now[0]
+    control.start()
+    now[0] = 60.
+    control.check_budget(before)
+    assert control.overtime_stage == 1
+
+    if entry == 'already_paused':
+        env.reader.read = lambda: replace(after, paused=True, phase='pause', menu_selection=0)
+        operation = env.resume
+    elif entry == 'dialogue':
+        env.reader.read_control = env.reader.read = lambda: replace(after, phase='dialogue')
+        env._advance_dialogue = lambda: pytest.fail('overtime must finish before the next stage dialogue')
+        operation = env.refresh_decision
+    else:
+        env.reader.read_control = lambda: loading
+        env.reader.read = lambda: after
+        operation = env.refresh_decision
+    with pytest.raises(FinishTraining) as caught:
+        operation()
+    assert caught.value.reason == 'stage_complete'
+    assert actions == [] and env.total_steps == 0
+    assert statuses[-1]['stage_transition']['before_stage'] == 1 and env.current.stage_id == 2
+    assert not (control.run_dir / 'PAUSE').exists()
+
+
+def test_extra_native_results_end_the_round_without_waiting_for_another_stage():
+    before = replace(frame(tick=15000), phase='boss', stage_id=7, game_mode='story',
+                     difficulty='extra', character='reimu_a')
+    result = replace(before, stage_active=False, stage_id=None, game_mode=None, phase='result')
+    env, actions, releases, _ = game(before, result)
+    env.goal = 'survival'
+    with pytest.raises(SamplingInterrupted) as caught:
+        env._check_sampling_scene(result, before)
+    info = caught.value.episode_end
+    assert info['episode_end_reason'] == 'story_result' and info['stage_id'] == 7
+    assert releases and not actions and env.total_steps == 0
+
+
+@pytest.mark.parametrize('phase', ('title', 'pause'))
+def test_story_loading_does_not_send_input_to_real_menus(story_handoff, phase):
+    env, actions, releases, _, before, loading, after = story_handoff
+    env.reader.read_control = lambda: loading
+    env.reader.read = lambda: replace(after, phase=phase, paused=phase == 'pause',
+                                      stage_active=phase == 'pause')
+    with pytest.raises(SamplingInterrupted) as caught:
+        env.refresh_decision()
+    assert not caught.value.stage_boundary and env.current is before
+    assert releases and actions == [] and (env.training_control.run_dir / 'PAUSE').exists()
+
+
+def test_story_loading_that_stays_unconfirmed_keeps_keys_released(story_handoff, monkeypatch):
+    env, actions, releases, _, before, loading, _ = story_handoff
+    env.reader.read_control = env.reader.read = lambda: loading
+    elapsed = [0.]
+    monkeypatch.setattr(environment, 'time', SimpleNamespace(monotonic=lambda: elapsed[0]))
+    env._wait = lambda seconds: elapsed.__setitem__(0, elapsed[0]+1)
+    with pytest.raises(SamplingInterrupted) as caught:
+        env.refresh_decision()
+    assert not caught.value.stage_boundary and env.current is before
+    assert releases and actions == [] and (env.training_control.run_dir / 'PAUSE').exists()
+
+
 def test_disabled_episode_limit_allows_more_than_180_game_seconds():
     before = replace(frame(tick=11000), stage_id=2)
     env, _, _, _ = game(before, replace(before, tick=11004))
@@ -68,8 +207,8 @@ def test_disabled_episode_limit_allows_more_than_180_game_seconds():
     assert info['survival_seconds'] > 180 and not died and not truncated
 
 
-@pytest.mark.parametrize('via_unknown', [False, True])
-def test_ppo_cuts_gae_and_bootstraps_old_stage_without_a_game_restart(via_unknown):
+@pytest.mark.parametrize('handoff', ['direct', 'via_unknown', 'on_resume'])
+def test_ppo_cuts_gae_and_bootstraps_old_stage_without_a_game_restart(handoff):
     torch.set_num_threads(1)
     class Stages(LearningFixture):
         resets = 0
@@ -77,8 +216,9 @@ def test_ppo_cuts_gae_and_bootstraps_old_stage_without_a_game_restart(via_unknow
             super().reset(**kwargs)
             self.resets += 1
             self.current.stage_id = 1
-            self.transitions = [None, 2] if via_unknown else [2]
+            self.transitions = [None, 2] if handoff == 'via_unknown' else [2]
             self.actual_rewards = []
+            self.resume_requested = False
             self.builder.reset()
             return self.builder.build(self.current), {}
         def step(self, action):
@@ -87,6 +227,9 @@ def test_ppo_cuts_gae_and_bootstraps_old_stage_without_a_game_restart(via_unknow
                     with torch.no_grad():
                         tensor = {k: torch.as_tensor(v, device=self.model.device) for k,v in self.model._last_obs.items()}
                         self.old_boundary_value = self.model.policy.predict_values(tensor).item()
+                if handoff == 'on_resume':
+                    self.resume_requested = True
+                    raise SamplingInterrupted()
                 self.current = replace(self.current, stage_id=self.transitions.pop(0), tick=0)
                 self.builder.reset()
                 raise SamplingInterrupted(stage_boundary=True)
@@ -94,7 +237,14 @@ def test_ppo_cuts_gae_and_bootstraps_old_stage_without_a_game_restart(via_unknow
             self.actual_rewards.append(result[1])
             return result
     class Control:
-        def gate(self, game): return False
+        def gate(self, game):
+            if not game.resume_requested:
+                return False
+            game.resume_requested = False
+            game.current = replace(game.current, stage_id=game.transitions.pop(0), tick=0)
+            game.builder.reset()
+            game.pending_stage_boundary = True
+            return True
     class Callback(BaseCallback):
         def _on_step(self): return True
     env = Stages()
@@ -102,6 +252,11 @@ def test_ppo_cuts_gae_and_bootstraps_old_stage_without_a_game_restart(via_unknow
         gamma=learning.DISCOUNT, policy_kwargs={'features_extractor_class': BulletEncoder})
     env.model = model
     model.training_control, model.training_game = Control(), env
+    if handoff == 'on_resume':
+        # Distinct values make the observation used for bootstrap observable.
+        def stage_values(observation):
+            return (10 * observation['stage'][:, 0] + 20 * observation['stage'][:, 1])[:, None]
+        model.policy.predict_values = stage_values
     model.train = lambda: None
     model.learn(8, callback=Callback())
     buffer = model.rollout_buffer

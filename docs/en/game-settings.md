@@ -13,7 +13,7 @@ The operator selects the game setup before starting training, resuming a checkpo
 
 The current game caps Easy Practice at Stage 5. Extra and its shot type must be unlocked in the game. The agent reads unlocks and navigates with ordinary keys. If the selected combination is locked, the menu is unknown, or the actual game settings differ, the worker can wait for the operator to correct it. Unknown values stay unknown.
 
-A real stage pause at tick 0–5 is a valid attachment point. If you start at the Practice stage selection, the worker checks the earlier confirmed difficulty and shot type and navigates back to fix mismatches. Story advances with the game. Practice re-enters the selected stage after the results boundary. First-run calibration still applies. [First-run calibration](development.md#first-run-calibration)
+A real stage pause at tick 0–5 is a valid attachment point. If you start at the Practice stage selection, the worker checks the earlier confirmed difficulty and shot type and navigates back to fix mismatches. Story advances with the game. If the stage number briefly disappears between stages, the worker releases input and waits for the native stage to return. It updates the console and sampling context once it has a confirmed stage. The transition produces no combat samples. A recognized menu, a real pause, or a stage that remains unconfirmed requires operator attention. Practice re-enters the selected stage after results or a return to the native Practice stage menu. First-run calibration still applies. [First-run calibration](development.md#first-run-calibration)
 
 ## Configure defaults or run from the CLI
 
@@ -58,6 +58,6 @@ These offsets and signatures are evidence for the supported executable. Revalida
 
 Observation v9 appends 19 inputs for difficulty, shot, mode, speed, and known flags. The policy uses observed values. Migration from v8 preserves the existing fusion columns, policy/value heads, and Adam state. New columns and their optimizer history start at zero. Historical v1–v7 models follow the earlier compatibility path, and source files are retained.
 
-The Practice result triggers `SamplingInterrupted.episode_end`. The sampler cuts GAE at that boundary and resets instead of recording menu input as combat. Evaluation uses `practice_result` for this outcome. Setup changes also separate timing history.
+The native Practice result ends the episode as `practice_result`. If the sampler misses the result flag, it can still end a previously confirmed Practice round when it sees the native Practice stage menu. This is recorded as `practice_return` and does not verify a stage clear. A detected Miss is still recorded as `death`. These cases use `SamplingInterrupted.episode_end` to cut GAE and reset. Menu input produces no combat samples. Re-entry still checks the session's difficulty, shot type, stage, and unlocks. Setup changes also separate timing history.
 
 Offline verification covers selection, unlock limits, observed/requested separation, native speed, API validation, migration, and the result boundary. The recorded 2026-11-03 live check was read-only on a Practice stage-selection screen with Normal, Reimu A, Stage 1 highlighted, and six stages available. End-to-end verification of automatic navigation, every combination, and re-entry after results remains separate.

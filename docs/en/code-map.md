@@ -121,6 +121,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | [pausable_ppo.py](../../th06ai/pausable_ppo.py) | Single-environment rollout gate, real transitions, and boundary bootstrap. |
 | [ppo_update.py](../../th06ai/ppo_update.py) | ResourcePolicy PPO update and exploration objective. |
 | [learning.py](../../th06ai/learning.py) | Build, load, migrate, save, train, and evaluate a policy. |
+| [evaluation.py](../../th06ai/evaluation.py) | Stage, input, and Boss Power evidence from committed evaluation observations. |
 | [model_store.py](../../th06ai/model_store.py) | Compatibility, catalog, and immutable ZIP/JSON checkpoint retention. |
 | [diagnostic_writer.py](../../th06ai/diagnostic_writer.py) | Bounded CPU helper queue, private transport, compression, and cleanup. |
 | [diagnostics.py](../../th06ai/diagnostics.py) | Frame and control rings, death archives, and asynchronous diagnostics. |

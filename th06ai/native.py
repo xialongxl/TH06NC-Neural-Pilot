@@ -128,16 +128,20 @@ def decode_items(raw: bytes, width: float, height: float) -> np.ndarray:
     if len(raw) != ITEM_CAPACITY * ITEM_STRIDE:
         raise RuntimeError(msg('backend.unexpected_item_pool_size'))
     data = np.frombuffer(raw, dtype=ITEM_DTYPE)
-    active = data["active"] != 0
-    if np.any(active & ((data["type"] < 0) | (data["type"] > 6))):
+    slots = np.flatnonzero(data["active"])
+    if not len(slots):
+        return np.empty((0, 6), np.float32)
+    kind = data["type"][slots]
+    if np.any((kind < 0) | (kind > 6)):
         raise RuntimeError(msg('backend.unknown_item_type_the_observation_was_rejected'))
-    finite = np.isfinite(data["x"]) & np.isfinite(data["y"]) & np.isfinite(data["vx"]) & np.isfinite(data["vy"])
-    if np.any(active & ~finite):
+    x, y, vx, vy = (data[field][slots] for field in ("x", "y", "vx", "vy"))
+    if not (np.isfinite(x).all() and np.isfinite(y).all() and np.isfinite(vx).all() and np.isfinite(vy).all()):
         raise RuntimeError(msg('backend.item_coordinates_or_velocities_contain_non_finite'))
-    visible = active & (data["x"] >= 0) & (data["x"] <= width) & (data["y"] >= 0) & (data["y"] <= height)
-    slots = np.flatnonzero(visible)
-    return np.column_stack((slots, data["x"][visible], data["y"][visible], data["type"][visible],
-                            data["vx"][visible], data["vy"][visible])).astype(np.float32)
+    visible = (x >= 0) & (x <= width) & (y >= 0) & (y <= height)
+    result = np.empty((int(visible.sum()), 6), np.float32)
+    for index, column in enumerate((slots, x, y, kind, vx, vy)):
+        result[:, index] = column[visible]
+    return result
 
 
 def inspect_game(path: Path) -> dict:
@@ -395,12 +399,14 @@ class GameReader:
         # Rendering visibility: active/spawning bullets in the visible field.
         # Do not expose velocity fields, RNG, script counters or future spawns.
         width, height = float(bounds[2] + 2 * bounds[0]), float(bounds[3] + 2 * bounds[1])
-        visible = ((states >= 1) & (states <= 4) & np.isfinite(data["x"]) & np.isfinite(data["y"]) &
-                   (data["x"] >= 0) & (data["x"] <= width) &
-                   (data["y"] >= 0) & (data["y"] <= height))
-        slots = np.flatnonzero(visible)
-        bullets = np.column_stack((slots, data["x"][visible], data["y"][visible])).astype(np.float32)
-        sizes = np.column_stack((data["width"][visible], data["height"][visible])).astype(np.float32)
+        active = np.flatnonzero((states >= 1) & (states <= 4))
+        bullet_x, bullet_y = data["x"][active], data["y"][active]
+        visible = (np.isfinite(bullet_x) & np.isfinite(bullet_y) & (bullet_x >= 0) & (bullet_x <= width)
+                   & (bullet_y >= 0) & (bullet_y <= height))
+        slots = active[visible]
+        bullets = np.empty((len(slots), 3), np.float32)
+        bullets[:, 0], bullets[:, 1], bullets[:, 2] = slots, bullet_x[visible], bullet_y[visible]
+        sizes = np.column_stack((data["width"][slots], data["height"][slots]))
         # Spawning sprites can have unset sizes. Unknown geometry remains
         # unknown; never turn missing/invalid hitboxes into a zero-radius bullet.
         invalid = ~np.isfinite(sizes) | (sizes <= 0) | (sizes > 256)
@@ -416,7 +422,7 @@ class GameReader:
         frame.lasers=decode_lasers(p.read(LASER_START,LASER_CAPACITY*LASER_STRIDE),width,height)
         frame.stage_raw = struct.unpack('<i', p.read(STAGE_RVA, 4))[0]
         frame.stage_id = decode_stage(frame.stage_raw)
-        frame.bullet_states = states[visible].copy()
+        frame.bullet_states = states[slots]
         shots=np.ndarray((80,),dtype='<u2',buffer=p.read(PLAYER+0x410,80*0x170),offset=0x10,strides=(0x170,))
         frame.player_shots=int(np.count_nonzero(shots==1))
         frame.movement_speeds = movement_speeds(player)

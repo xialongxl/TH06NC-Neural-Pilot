@@ -52,14 +52,15 @@ def build_command(mode, minutes, model=None, goal=None, game_setup=None):
     return command
 
 
-def current_session(root=ROOT):
-    pointer = read_json(root / "runs" / "current.json")
+def current_session(root=ROOT, *, read=None):
+    read = read or read_json
+    pointer = read(root / "runs" / "current.json")
     if not isinstance(pointer.get("run_dir"), str):
         return None, {}
     path = Path(pointer["run_dir"]).resolve()
     if not path.is_relative_to((root / "runs").resolve()):
         return None, {}
-    return path, read_json(path / "status.json")
+    return path, read(path / "status.json")
 
 
 def session_active(status):
@@ -104,7 +105,10 @@ class ConsoleService:
         from .acceleration import backend_status
         self._native_backend = backend_status()
         self.pending_run, self.pending_mode = None, None
+        # The game and catalog locks may acquire the session lock for publication.
         self._lock = threading.RLock()
+        self._game_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
         self._catalog, self._catalog_at = [], -math.inf
         self._catalog_cache = CheckpointCatalog(self.root / 'models')
         self._catalog_scan_lock = threading.Lock()
@@ -112,10 +116,9 @@ class ConsoleService:
         self._catalog_thread = None
         self._catalog_revision = None
         self._catalog_error = None
-        self._history, self._history_key = [], None
+        self._gpu_histories = {}
         self._json_cache, self._text_cache = {}, {}
         self._model_view = []
-        self._model_catalog_ref = None
         self._safety = asdict(config.safety)
         saved = read_json(self.root / "ui_state.json").get("selected_model")
         self.selected_path = Path(saved).resolve() if isinstance(saved, str) else None
@@ -143,31 +146,39 @@ class ConsoleService:
     def _publish_scan(self):
         revision = self._file_stamp(self.root / 'models/catalog_revision.json')
         entries = self._catalog_cache.scan()
+        rows = self._model_rows(entries)
+        view = self._model_view if rows == self._model_view else rows
+        paths = {entry.path for entry in entries}
+        fallback = next((entry.path for entry in entries if entry.usable), None)
         with self._lock:
             self._catalog = entries
+            self._model_view = view
             self._catalog_at = time.monotonic()
             self._catalog_revision = revision
             self._catalog_error = None
-            if not any(c.path == self.selected_path for c in entries):
-                self.selected_path = next((c.path for c in entries if c.usable), None)
+            if self.selected_path not in paths:
+                self.selected_path = fallback
             return self._catalog
 
     def _background_scan(self):
         try:
             self._scan_models()
         except Exception as error:
+            revision = self._file_stamp(self.root / 'models/catalog_revision.json')
             with self._lock:
                 self._catalog_error = str(error)
                 self._catalog_at = time.monotonic()
-                self._catalog_revision = self._file_stamp(self.root / 'models/catalog_revision.json')
+                self._catalog_revision = revision
         finally:
             with self._lock:
                 self._catalog_refreshing = False
 
     def models(self):
-        catalog = self.refresh_models()
-        if catalog is self._model_catalog_ref:
+        self.refresh_models()
+        with self._lock:
             return self._model_view
+
+    def _model_rows(self, catalog):
         rows = [{"id": self.model_id(c.path), "name": msg('backend.latest_checkpoint') if c.path == self.root / "models/latest.zip"
                  else msg('backend.checkpoint_0_steps', f"{c.metadata.get('steps', 0):,}"),
                  "path": str(c.path.relative_to(self.root)), "steps": c.metadata.get("steps", 0),
@@ -175,10 +186,7 @@ class ConsoleService:
                  "usable": c.usable, "compatibility": c.compatibility,
                  "format": c.metadata.get("format"), "planner_version": c.metadata.get("planner_version")}
                 for c in catalog]
-        if rows != self._model_view:
-            self._model_view = json_safe(rows)
-        self._model_catalog_ref = catalog
-        return self._model_view
+        return json_safe(rows)
 
     @staticmethod
     def _file_stamp(path):
@@ -188,44 +196,46 @@ class ConsoleService:
         except OSError:
             return None
 
-    def _read_json(self, path):
+    def _cached_file(self, path, cache, key, capacity, load):
         stamp = self._file_stamp(path)
-        cached = self._json_cache.get(path)
-        if stamp is not None and cached is not None and cached[0] == stamp:
-            return cached[1]
-        value = json_safe(read_json(path))
-        if value and stamp is not None:
-            self._json_cache[path] = stamp, value
-            if len(self._json_cache) > 64:
-                self._json_cache.pop(next(iter(self._json_cache)))
+        with self._cache_lock:
+            cached = cache.get(key)
+            if cached is not None and cached[0] == stamp:
+                return cached[1]
+        value = load()
+        if stamp is not None and value:
+            with self._cache_lock:
+                current = cache.get(key)
+                if current is not None and current[0] == stamp:
+                    return current[1]
+                if current is cached:
+                    cache[key] = stamp, value
+                    if len(cache) > capacity:
+                        cache.pop(next(iter(cache)))
         return value
 
+    def _read_json(self, path):
+        return self._cached_file(path, self._json_cache, path, 64, lambda: json_safe(read_json(path)))
+
     def _tail(self, path, limit=32768):
-        stamp = self._file_stamp(path)
-        cached = self._text_cache.get((path, limit))
-        if cached is not None and cached[0] == stamp:
-            return cached[1]
-        value = tail_text(path, limit=limit)
-        self._text_cache[path, limit] = stamp, value
-        if len(self._text_cache) > 32:
-            self._text_cache.pop(next(iter(self._text_cache)))
-        return value
+        return self._cached_file(path, self._text_cache, (path, limit), 32, lambda: tail_text(path, limit=limit))
 
     def select_model(self, model_id):
         catalog = self.refresh_models(force=True)
-        with self._lock:
-            entry = next((c for c in catalog if self.model_id(c.path) == model_id), None)
-            if entry is None:
-                raise ConsoleError(msg('backend.model_not_found_refresh_the_model_library'), 404)
-            if not entry.usable:
-                raise ConsoleError(entry.compatibility)
+        entry = next((c for c in catalog if self.model_id(c.path) == model_id), None)
+        if entry is None:
+            raise ConsoleError(msg('backend.model_not_found_refresh_the_model_library'), 404)
+        if not entry.usable:
+            raise ConsoleError(entry.compatibility)
+        with self._catalog_scan_lock:
             checked = inspect_checkpoint(entry.path)
-            if not checked.path.is_relative_to((self.root / 'models').resolve()) or not checked.usable:
+            if checked.path != entry.path or not checked.path.is_relative_to((self.root / 'models').resolve()) or not checked.usable:
                 raise ConsoleError(msg('backend.the_model_path_or_metadata_changed_refresh'))
-            self.selected_path = entry.path
             if not self.preview:
                 atomic_json(self.root / "ui_state.json", {"selected_model": str(entry.path)})
-            return self.model_id(entry.path)
+            with self._lock:
+                self.selected_path = entry.path
+        return model_id
 
     def readiness(self):
         backend = self._read_json(self.root / "training_backend.json")
@@ -235,76 +245,103 @@ class ConsoleService:
         return {"ready": all(checks.values()), "checks": checks, "backend": backend}
 
     def _gpu_history(self, path, gpu):
-        key = str(path) if path else None
-        if key != self._history_key:
-            records = []
+        with self._cache_lock:
+            history = self._gpu_histories.get(path)
+        if history is None:
+            history = []
             for line in tail_text(path / "gpu.jsonl", limit=180000).splitlines() if path else []:
                 try:
-                    row = json.loads(line)
-                    if isinstance(row.get("temperature_c"), (int, float)) and math.isfinite(row["temperature_c"]):
-                        records.append(json_safe({"stamp": row.get("monotonic"), "temperature_c": row["temperature_c"],
-                                        "power_w": row.get("power_w"), "utilization": row.get("utilization")}))
+                    point = self._gpu_point(json.loads(line))
                 except (ValueError, AttributeError):
                     continue
-            self._history, self._history_key = records[-180:], key
-        if isinstance(gpu.get("temperature_c"), (int, float)) and math.isfinite(gpu["temperature_c"]) and (
-                not self._history or self._history[-1]["stamp"] != gpu.get("monotonic")):
-            self._history = [*self._history, json_safe({"stamp": gpu.get("monotonic"), "temperature_c": gpu["temperature_c"],
-                              "power_w": gpu.get("power_w"), "utilization": gpu.get("utilization")} )][-180:]
-        return self._history
+                if point is not None:
+                    history.append(point)
+            history = history[-180:]
+        point = self._gpu_point(gpu)
+        with self._cache_lock:
+            history = self._gpu_histories.get(path, history)
+            if point is not None:
+                stamp = point['stamp']
+                last = history[-1]['stamp'] if history else None
+                # A snapshot may finish after a newer one has already appended.
+                if not history or (stamp is not None and (last is None or stamp > last)):
+                    history = [*history, point][-180:]
+            self._gpu_histories[path] = history
+            if len(self._gpu_histories) > 4:
+                self._gpu_histories.pop(next(iter(self._gpu_histories)))
+            return history
+
+    @staticmethod
+    def _gpu_point(gpu):
+        temperature = gpu.get('temperature_c')
+        if not isinstance(temperature, (int, float)) or not math.isfinite(temperature):
+            return None
+        stamp = gpu.get('monotonic')
+        return json_safe({'stamp': stamp if isinstance(stamp, (int, float)) else None,
+                          'temperature_c': temperature, 'power_w': gpu.get('power_w'),
+                          'utilization': gpu.get('utilization')})
 
     def snapshot(self):
+        self.refresh_models()
         with self._lock:
-            path, status = self._session()
-            active = session_active(status)
-            launching = bool(self.process and self.process.poll() is None)
-            gpu = status.get("gpu") or {}
-            stamp = gpu.get("monotonic")
-            gpu_age = max(0, time.monotonic()-stamp) if isinstance(stamp, (int, float)) and math.isfinite(stamp) else None
-            return {"preview": self.preview, "session": status, "active": active,
-                    "shutdown": dict(self.shutdown),
-                    'game_probe':self.last_game_probe,
-                    'acceleration':{**self._native_backend,'collision':self.config.planning.collision_backend,
-                                    'input':self.config.input_backend},
-                    "busy": active or launching, "run_dir": str(path) if path else None,
-                    'default_game_setup':(self.config.game_setup or GameSetup()).to_dict(),
-                    "hotkeys": status.get('hotkeys') or {},
-                    "window_focus": self.last_focus,
-                    "pause_requested": bool(path and (path / "PAUSE").exists()),
-                    "finish_requested": bool(path and (path / "FINISH").exists() and active),
-                    "selected_model_id": self.model_id(self.selected_path) if self.selected_path else None,
-                    "models": self.models(), "readiness": self.readiness(),
-                    "safety": self._safety, "default_minutes": self.config.minutes,
-                    "versions": {"observation": OBSERVATION_VERSION, "reward": REWARD_VERSION, "planner": PLANNER_VERSION},
-                    "gpu_history": self._gpu_history(path, gpu), "gpu_age_seconds": gpu_age,
-                    "gpu_live": active and gpu_age is not None and gpu_age < self.config.safety.telemetry_timeout_seconds
-                        and isinstance(gpu.get("temperature_c"), (int, float)) and math.isfinite(gpu["temperature_c"])}
+            launch = self.process, self.pending_run, self.pending_mode
+            config, native_backend = self.config, self._native_backend
+            models, selected_path = self._model_view, self.selected_path
+            shutdown, probe, focus = dict(self.shutdown), self.last_game_probe, self.last_focus
+        path, status = self._session(launch)
+        active = session_active(status)
+        process = launch[0]
+        launching = bool(process and process.poll() is None)
+        gpu = status.get("gpu") or {}
+        stamp = gpu.get("monotonic")
+        gpu_age = max(0, time.monotonic()-stamp) if isinstance(stamp, (int, float)) and math.isfinite(stamp) else None
+        return {"preview": self.preview, "session": status, "active": active, "shutdown": shutdown,
+                'game_probe': probe,
+                'acceleration': {**native_backend, 'collision': config.planning.collision_backend,
+                                 'input': config.input_backend},
+                "busy": active or launching, "run_dir": str(path) if path else None,
+                'default_game_setup': (config.game_setup or GameSetup()).to_dict(),
+                "hotkeys": status.get('hotkeys') or {}, "window_focus": focus,
+                "pause_requested": bool(path and (path / "PAUSE").exists()),
+                "finish_requested": active and (status.get('state') == 'finishing'
+                        or bool(path and (path / "FINISH").exists())),
+                "selected_model_id": self.model_id(selected_path) if selected_path else None,
+                "models": models, "readiness": self.readiness(),
+                "safety": self._safety, "default_minutes": config.minutes,
+                "versions": {"observation": OBSERVATION_VERSION, "reward": REWARD_VERSION, "planner": PLANNER_VERSION},
+                "gpu_history": self._gpu_history(path, gpu), "gpu_age_seconds": gpu_age,
+                "gpu_live": active and gpu_age is not None and gpu_age < config.safety.telemetry_timeout_seconds
+                    and isinstance(gpu.get("temperature_c"), (int, float)) and math.isfinite(gpu["temperature_c"])}
 
     def battle_view_run(self):
         with self._lock:
             if self.preview or self.shutdown.get('state') in ('waiting', 'stopping', 'closed'):
                 return None
-            path, status = self._session()
-            if (path and status.get('mode') in ('train', 'play', 'evaluate') and status.get('state') == 'running'
-                    and session_active(status) and not (path / 'PAUSE').exists()
-                    and not (path / 'STOP').exists()):
-                return path
+            launch = self.process, self.pending_run, self.pending_mode
+        path, status = self._session(launch)
+        if (path and status.get('mode') in ('train', 'play', 'evaluate') and status.get('state') == 'running'
+                and session_active(status) and not (path / 'PAUSE').exists() and not (path / 'STOP').exists()):
+            with self._lock:
+                if not self._closing and self.pending_run == launch[1]:
+                    return path
         return None
 
-    def _session(self):
-        pointer = self._read_json(self.root / "runs/current.json")
-        candidate = pointer.get("run_dir")
-        path = Path(candidate).resolve() if isinstance(candidate, str) else None
-        if path is not None and not path.is_relative_to((self.root / "runs").resolve()):
-            path = None
-        status = self._read_json(path / "status.json") if path else {}
-        if self.pending_run is not None and self.process is not None:
-            code = self.process.poll()
-            if code is None or path != self.pending_run:
-                pending = self._read_json(self.pending_run / "status.json")
-                return self.pending_run, pending or {"state": "starting" if code is None else "stopped",
-                    "mode": self.pending_mode,
+    def _session(self, launch=None):
+        if launch is None:
+            with self._lock:
+                launch = self.process, self.pending_run, self.pending_mode
+        process, pending_run, pending_mode = launch
+        path, status = current_session(self.root, read=self._read_json)
+        if pending_run is not None and process is not None:
+            code = process.poll()
+            if path != pending_run:
+                pending = self._read_json(pending_run / "status.json")
+                return pending_run, pending or {"state": "starting" if code is None else "stopped",
+                    "mode": pending_mode,
                     "reason": msg('backend.starting_the_independent_watchdog') if code is None else msg('backend.the_launcher_exited_with_code_0_check', code)}
+            if code is None and not status:
+                return pending_run, {"state": "starting", "mode": pending_mode,
+                                     "reason": msg('backend.starting_the_independent_watchdog')}
         return path, status
 
     def _writable(self):
@@ -320,15 +357,17 @@ class ConsoleService:
                 result = activate_game(self.config.game_path)
         except Exception as error:
             result = {'activated': False, 'message': msg('backend.could_not_focus_the_game_window_0', error)}
-        self.last_focus = result
+        with self._lock:
+            self.last_focus = result
         return result
 
     def focus_game(self):
-        with self._lock:
-            self._writable()
-            _, status = self._session()
-            if session_active(status):
-                return self.control('focus')
+        self._writable()
+        with self._game_lock:
+            with self._lock:
+                path, status = self._session()
+                if session_active(status):
+                    return self._request_focus(path)
             result = self._activate_game()
             if not result['activated']:
                 raise ConsoleError(result['message'])
@@ -339,98 +378,135 @@ class ConsoleService:
         from datetime import datetime
         from .game_phase import PHASE_NAMES
         from .stage import stage_label
-        with self._lock:
-            if self.preview:
-                raise ConsoleError(msg('backend.read_only_preview_does_not_connect_to'),403)
-            _,status=self._session()
-            if session_active(status) or self.process and self.process.poll() is None:
-                raise ConsoleError(msg('backend.a_session_is_running_check_the_worker'),409)
-            reader=None
+        if self.preview:
+            raise ConsoleError(msg('backend.read_only_preview_does_not_connect_to'), 403)
+        with self._game_lock:
+            with self._lock:
+                _, status = self._session()
+                if session_active(status) or self.process and self.process.poll() is None:
+                    raise ConsoleError(msg('backend.a_session_is_running_check_the_worker'), 409)
+                config = self.config
+            reader = None
             try:
                 from .native import GameReader
-                reader=GameReader(self.config.game_path)
-                if self.config.capture_backend != 'auto':
-                    reader.process.configure_reads(self.config.capture_backend)
-                f=reader.read()
-                self.last_game_probe={'available':True,'phase':f.phase,'label':PHASE_NAMES.get(f.phase,msg('backend.waiting_for_detection')),
+                reader = GameReader(config.game_path)
+                if config.capture_backend != 'auto':
+                    reader.process.configure_reads(config.capture_backend)
+                f = reader.read()
+                probe = {'available':True,'phase':f.phase,'label':PHASE_NAMES.get(f.phase,msg('backend.waiting_for_detection')),
                     'game_settings':observed_settings(f),
                     'stage_id':getattr(f,'stage_id',None),'stage_label':stage_label(getattr(f,'stage_id',None)),
                     'paused':f.paused,'tick':f.tick,'menu_selection':f.menu_selection,'menu_ready':f.menu_ready,
                     'evidence':f.phase_evidence,'player_shots':f.player_shots,'visible_lasers':len(f.lasers),
                     'observed_at':datetime.now().astimezone().isoformat(),'message':msg('backend.read_only_probe_complete')}
             except (OSError,RuntimeError,ValueError) as error:
-                self.last_game_probe={'available':False,'label':msg('backend.game_not_connected'),'message':str(error),
+                probe = {'available':False,'label':msg('backend.game_not_connected'),'message':str(error),
                     'observed_at':datetime.now().astimezone().isoformat()}
             finally:
-                if reader is not None:reader.close()
-            return self.last_game_probe
+                if reader is not None:
+                    reader.close()
+            with self._lock:
+                self.last_game_probe = probe
+            return probe
 
-    def set_acceleration(self,collision,input_backend):
+    def set_acceleration(self, collision, input_backend):
         from .acceleration import backend_status
-        with self._lock:
-            self._writable()
-            _,status=self._session()
-            if session_active(status) or self.process and self.process.poll() is None:
-                raise ConsoleError(msg('backend.end_the_current_session_before_switching_compute'),409)
-            available=backend_status()
-            if 'rust' in (collision,input_backend) and not available['available']:
-                raise ConsoleError(msg('backend.the_rust_extension_has_not_been_built'),422)
-            if collision not in ('python','rust','auto') or input_backend not in ('python','rust','auto'):
-                raise ConsoleError(msg('backend.unknown_compute_backend'),422)
-            config=replace(self.config,input_backend=input_backend,
-                           planning=replace(self.config.planning,collision_backend=collision))
-            atomic_json(self.root/'config.json',asdict(config))
-            self.config=config
-            self._native_backend=available
-            return {'message':msg('backend.backend_settings_saved_for_the_next_session')}
+        self._writable()
+        with self._game_lock:
+            with self._lock:
+                _, status = self._session()
+                if session_active(status) or self.process and self.process.poll() is None:
+                    raise ConsoleError(msg('backend.end_the_current_session_before_switching_compute'), 409)
+                current = self.config
+            available = backend_status()
+            if 'rust' in (collision, input_backend) and not available['available']:
+                raise ConsoleError(msg('backend.the_rust_extension_has_not_been_built'), 422)
+            if collision not in ('python', 'rust', 'auto') or input_backend not in ('python', 'rust', 'auto'):
+                raise ConsoleError(msg('backend.unknown_compute_backend'), 422)
+            config = replace(current, input_backend=input_backend,
+                             planning=replace(current.planning, collision_backend=collision))
+            atomic_json(self.root / 'config.json', asdict(config))
+            with self._lock:
+                self.config = config
+                self._native_backend = available
+            return {'message': msg('backend.backend_settings_saved_for_the_next_session')}
+
+    def _check_start_allowed(self):
+        if self._closing:
+            raise ConsoleError(msg('backend.the_service_is_shutting_down_wait_for_2'))
+        _, status = current_session(self.root)
+        if session_active(status) or (self.process and self.process.poll() is None):
+            raise ConsoleError(msg('backend.a_session_is_already_running_pause_resume'))
+
+    def _checkpoint_stamp(self, path):
+        return self._file_stamp(path), self._file_stamp(path.with_suffix('.json'))
 
     def start(self, mode, minutes, model_id=None, goal=None, game_setup=None):
-        catalog = self.refresh_models(force=True) if mode in {'resume', 'play', 'evaluate'} else []
+        self._writable()
         with self._lock:
-            self._writable()
-            if self._closing:
-                raise ConsoleError(msg('backend.the_service_is_shutting_down_wait_for_2'))
-            path, status = current_session(self.root)
-            if session_active(status) or (self.process and self.process.poll() is None):
-                raise ConsoleError(msg('backend.a_session_is_already_running_pause_resume'))
-            model = None
-            if mode in {"resume", "play", "evaluate"}:
-                entry = next((c for c in catalog
-                              if self.model_id(c.path) == model_id), None)
-                if entry is None:
-                    raise ConsoleError(msg('backend.select_a_compatible_model_first'), 422)
-                checked = inspect_checkpoint(entry.path, verify=True)
-                if not checked.path.is_relative_to((self.root / 'models').resolve()):
-                    raise ConsoleError(msg('backend.the_model_path_is_outside_the_project'))
-                if not checked.usable:
-                    raise ConsoleError(checked.compatibility)
-                model = entry.path
-            if mode in {"resume", "train", "play", "evaluate"} and not self.readiness()["ready"]:
-                raise ConsoleError(msg('backend.complete_the_checks_on_the_safety_diagnostics'))
+            self._check_start_allowed()
+        model = None
+        model_stamp = None
+        if mode in {'resume', 'play', 'evaluate'}:
+            catalog = self.refresh_models(force=True)
+            entry = next((c for c in catalog if self.model_id(c.path) == model_id), None)
+            if entry is None:
+                raise ConsoleError(msg('backend.select_a_compatible_model_first'), 422)
+            model = entry.path
+            model_stamp = self._checkpoint_stamp(model)
             try:
-                setup = parse_setup(game_setup)
-            except ValueError as error:
-                raise ConsoleError(str(error), 422) from error
-            if setup is not None and mode not in ('resume','train','play','evaluate'):
-                raise ConsoleError(msg('backend.game_settings_apply_to_training_playback_and'),422)
-            command = build_command(mode, minutes, model, goal, setup)
-            run_path = new_run(self.root, "train" if mode == "resume" else mode)
-            command += ["--run-dir", str(run_path)]
-            log = self.root / "runs/launcher.log"
-            log.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                with log.open("a", encoding="utf-8") as stream:
-                    self.process = self._popen(command, cwd=self.root,
-                        env=dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1"), stdout=stream,
-                        stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                checked = inspect_checkpoint(model, verify=True)
             except OSError as error:
-                raise ConsoleError(msg('backend.launch_failed_0', error), 500) from error
-            self.pending_run, self.pending_mode = run_path, "train" if mode == "resume" else mode
-            # Web's foreground process is the browser, not this API. Activate
-            # on the explicit start request now, rather than waiting through
-            # CUDA/model loading before the worker first asks for focus.
-            focus = self._activate_game() if mode in ('resume', 'train', 'play', 'evaluate', 'calibrate') else None
-            return {"message": msg('backend.request_accepted_the_session_will_start_after'), "mode": mode, 'foreground': focus}
+                raise ConsoleError(msg('backend.the_model_path_or_metadata_changed_refresh')) from error
+            if not checked.path.is_relative_to((self.root / 'models').resolve()):
+                raise ConsoleError(msg('backend.the_model_path_is_outside_the_project'))
+            if checked.path != model:
+                raise ConsoleError(msg('backend.the_model_path_or_metadata_changed_refresh'))
+            if not checked.usable:
+                raise ConsoleError(checked.compatibility)
+        if mode in {'resume', 'train', 'play', 'evaluate'} and not self.readiness()['ready']:
+            raise ConsoleError(msg('backend.complete_the_checks_on_the_safety_diagnostics'))
+        try:
+            setup = parse_setup(game_setup)
+        except ValueError as error:
+            raise ConsoleError(str(error), 422) from error
+        if setup is not None and mode not in ('resume', 'train', 'play', 'evaluate'):
+            raise ConsoleError(msg('backend.game_settings_apply_to_training_playback_and'), 422)
+        command = build_command(mode, minutes, model, goal, setup)
+        with self._game_lock:
+            with self._lock:
+                self._check_start_allowed()
+                if model is not None and self._checkpoint_stamp(model) != model_stamp:
+                    raise ConsoleError(msg('backend.the_model_path_or_metadata_changed_refresh'))
+                run_path = self._launch_session(command, 'train' if mode == 'resume' else mode)
+            focus = None
+            if mode in ('resume', 'train', 'play', 'evaluate', 'calibrate'):
+                with self._lock:
+                    can_focus = not self._closing and not (run_path / 'STOP').exists()
+                if can_focus:
+                    # Activate on the explicit start while the worker loads.
+                    focus = self._activate_game()
+        return {"message": msg('backend.request_accepted_the_session_will_start_after'), "mode": mode, 'foreground': focus}
+
+    def _launch_session(self, command, mode):
+        """Publish the new run and launcher together under the session lock."""
+        run_path = new_run(self.root, mode)
+        command += ['--run-dir', str(run_path)]
+        log = self.root / 'runs/launcher.log'
+        try:
+            with log.open('a', encoding='utf-8') as stream:
+                process = self._popen(command, cwd=self.root,
+                    env=dict(os.environ, PYTHONUTF8='1', PYTHONUNBUFFERED='1'), stdout=stream,
+                    stderr=subprocess.STDOUT, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except OSError as error:
+            raise ConsoleError(msg('backend.launch_failed_0', error), 500) from error
+        self.process, self.pending_run, self.pending_mode = process, run_path, mode
+        return run_path
+
+    @staticmethod
+    def _request_focus(path):
+        (path / 'FOCUS').touch()
+        return {'message': msg('backend.game_focus_requested_training_and_pause_state')}
 
     def control(self, action, *, paused=None):
         with self._lock:
@@ -444,8 +520,7 @@ class ConsoleService:
                 (path / "STOP").touch()
                 return {"message": msg('backend.emergency_stop_requested_the_last_saved_checkpoint')}
             if action == 'focus':
-                (path / 'FOCUS').touch()
-                return {'message': msg('backend.game_focus_requested_training_and_pause_state')}
+                return self._request_focus(path)
             if action == "pause":
                 if status.get('mode') not in ('train', 'play', 'evaluate'):
                     raise ConsoleError(msg('backend.this_session_does_not_support_pausing_the'))
@@ -465,6 +540,7 @@ class ConsoleService:
             atomic_json(self.root / f'runs/console-stop-{port}.json', {'requested_ns': time.time_ns()})
             path, status = self._session()
             pending = bool(self.process and self.process.poll() is None)
+            self._shutdown_run = None
             if not self.preview and path and (pending or status.get('state') in ACTIVE_STATES):
                 mode = status.get('mode') or self.pending_mode
                 marker = 'FINISH' if mode in ('train', 'play', 'evaluate') else 'STOP'
@@ -475,21 +551,20 @@ class ConsoleService:
             return dict(self.shutdown)
 
     def shutdown_ready(self):
-        with self._lock:
-            if self.preview:
-                return True
-            if self.process and self.process.poll() is None:
-                return False
-            if self._shutdown_run is None:
-                return True
-            status = self._read_json(self._shutdown_run / 'status.json')
-            from .console_lifecycle import process_running
-            for pid in (status.get('pid'), status.get('child_pid')):
-                if isinstance(pid, int) and pid > 0 and process_running(pid):
-                    return False
-            if status.get('pid') is None and status.get('state') in ACTIVE_STATES:
-                return False
+        if self.preview:
             return True
+        with self._lock:
+            process, path = self.process, self._shutdown_run
+        if process and process.poll() is None:
+            return False
+        if path is None:
+            return True
+        status = self._read_json(path / 'status.json')
+        from .console_lifecycle import process_running
+        for pid in (status.get('pid'), status.get('child_pid')):
+            if isinstance(pid, int) and pid > 0 and process_running(pid):
+                return False
+        return not (status.get('pid') is None and status.get('state') in ACTIVE_STATES)
 
     def shutdown_status(self, state, message):
         with self._lock:
@@ -498,8 +573,7 @@ class ConsoleService:
                 self._closing = False
 
     def logs(self):
-        with self._lock:
-            path, status = self._session()
-            return {"run_dir": str(path) if path else None, "state": status.get("state"),
-                    "worker": self._tail(path / "worker.log") if path else "",
-                    "launcher": self._tail(self.root / "runs/launcher.log", limit=12000)}
+        path, status = self._session()
+        return {"run_dir": str(path) if path else None, "state": status.get("state"),
+                "worker": self._tail(path / "worker.log") if path else "",
+                "launcher": self._tail(self.root / "runs/launcher.log", limit=12000)}

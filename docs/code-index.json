@@ -13,7 +13,7 @@
     },
     {
       "path": "th06ai/__main__.py",
-      "sha256": "b77c884ab83a5e52e5034c9474db718126fa362941ab18ef47779cfa0bb42a30",
+      "sha256": "0d7e076ac2b055abc772c4b33528c225dd243421d3396aec3c93d0c1c8eb9707",
       "summary": "",
       "imports": [
         ".config",
@@ -521,7 +521,7 @@
     },
     {
       "path": "th06ai/console_service.py",
-      "sha256": "3cb85e2b33e57636ae508ea1bdac7dc12a1ba6919dfdbd8554215d188be81a5f",
+      "sha256": "a768a0760b220f8a8446be9f929167e89e3018423cfa14f86a440bdaf42c4e22",
       "summary": "UI-independent session controls. Reading state never starts game/GPU work.",
       "imports": [
         ".acceleration",
@@ -578,165 +578,200 @@
           "name": "current_session",
           "kind": "function",
           "line": 55,
-          "signature": "root=ROOT"
+          "signature": "root=ROOT, *, read=None"
         },
         {
           "name": "session_active",
           "kind": "function",
-          "line": 65,
+          "line": 66,
           "signature": "status"
         },
         {
           "name": "tail_text",
           "kind": "function",
-          "line": 71,
+          "line": 72,
           "signature": "path, *, limit=32768"
         },
         {
           "name": "json_safe",
           "kind": "function",
-          "line": 84,
+          "line": 85,
           "signature": "value"
         },
         {
           "name": "ConsoleService",
           "kind": "class",
-          "line": 94,
+          "line": 95,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 95,
+              "line": 96,
               "signature": "self, config: Config, *, root=ROOT, preview=False, popen=subprocess.Popen, focus_fn=None"
             },
             {
               "name": "model_id",
-              "line": 125,
+              "line": 128,
               "signature": "path"
             },
             {
               "name": "refresh_models",
-              "line": 128,
+              "line": 131,
               "signature": "self, *, force=False"
             },
             {
               "name": "_scan_models",
-              "line": 139,
+              "line": 142,
               "signature": "self"
             },
             {
               "name": "_publish_scan",
-              "line": 143,
+              "line": 146,
               "signature": "self"
             },
             {
               "name": "_background_scan",
-              "line": 155,
+              "line": 163,
               "signature": "self"
             },
             {
               "name": "models",
-              "line": 167,
+              "line": 176,
               "signature": "self"
             },
             {
+              "name": "_model_rows",
+              "line": 181,
+              "signature": "self, catalog"
+            },
+            {
               "name": "_file_stamp",
-              "line": 184,
+              "line": 192,
               "signature": "path"
             },
             {
+              "name": "_cached_file",
+              "line": 199,
+              "signature": "self, path, cache, key, capacity, load"
+            },
+            {
               "name": "_read_json",
-              "line": 191,
+              "line": 217,
               "signature": "self, path"
             },
             {
               "name": "_tail",
-              "line": 203,
+              "line": 220,
               "signature": "self, path, limit=32768"
             },
             {
               "name": "select_model",
-              "line": 214,
+              "line": 223,
               "signature": "self, model_id"
             },
             {
               "name": "readiness",
-              "line": 230,
+              "line": 240,
               "signature": "self"
             },
             {
               "name": "_gpu_history",
-              "line": 237,
+              "line": 247,
               "signature": "self, path, gpu"
             },
             {
+              "name": "_gpu_point",
+              "line": 275,
+              "signature": "gpu"
+            },
+            {
               "name": "snapshot",
-              "line": 256,
+              "line": 284,
               "signature": "self"
             },
             {
               "name": "battle_view_run",
-              "line": 283,
+              "line": 316,
               "signature": "self"
             },
             {
               "name": "_session",
-              "line": 294,
-              "signature": "self"
+              "line": 329,
+              "signature": "self, launch=None"
             },
             {
               "name": "_writable",
-              "line": 310,
+              "line": 347,
               "signature": "self"
             },
             {
               "name": "_activate_game",
-              "line": 314,
+              "line": 351,
               "signature": "self"
             },
             {
               "name": "focus_game",
-              "line": 326,
+              "line": 364,
               "signature": "self"
             },
             {
               "name": "probe_game",
-              "line": 337,
+              "line": 376,
               "signature": "self"
             },
             {
               "name": "set_acceleration",
-              "line": 368,
+              "line": 412,
               "signature": "self, collision, input_backend"
             },
             {
+              "name": "_check_start_allowed",
+              "line": 434,
+              "signature": "self"
+            },
+            {
+              "name": "_checkpoint_stamp",
+              "line": 441,
+              "signature": "self, path"
+            },
+            {
               "name": "start",
-              "line": 387,
+              "line": 444,
               "signature": "self, mode, minutes, model_id=None, goal=None, game_setup=None"
             },
             {
+              "name": "_launch_session",
+              "line": 491,
+              "signature": "self, command, mode"
+            },
+            {
+              "name": "_request_focus",
+              "line": 507,
+              "signature": "path"
+            },
+            {
               "name": "control",
-              "line": 435,
+              "line": 511,
               "signature": "self, action, *, paused=None"
             },
             {
               "name": "request_shutdown",
-              "line": 461,
+              "line": 536,
               "signature": "self, *, port=DEFAULT_CONSOLE_PORT"
             },
             {
               "name": "shutdown_ready",
-              "line": 477,
+              "line": 553,
               "signature": "self"
             },
             {
               "name": "shutdown_status",
-              "line": 494,
+              "line": 569,
               "signature": "self, state, message"
             },
             {
               "name": "logs",
-              "line": 500,
+              "line": 575,
               "signature": "self"
             }
           ]
@@ -745,7 +780,7 @@
     },
     {
       "path": "th06ai/console_stream.py",
-      "sha256": "a7ee9a2d24fb3dabbee298473f1510237690c0be37a6ee8df15cbe624c7b9883",
+      "sha256": "1d8a2b862e20707241e78696662dd6df4ca116d998f8b5a6961ec4f653d6109a",
       "summary": "Shared, bounded UI snapshots and incremental SSE. No training controls.",
       "imports": [
         ".i18n",
@@ -760,42 +795,42 @@
         {
           "name": "display_state",
           "kind": "function",
-          "line": 31,
+          "line": 32,
           "signature": "raw"
         },
         {
           "name": "_diff",
           "kind": "function",
-          "line": 47,
+          "line": 48,
           "signature": "before, after, path, sets, removals"
         },
         {
           "name": "history_delta",
           "kind": "function",
-          "line": 63,
+          "line": 64,
           "signature": "before, after, same_run"
         },
         {
           "name": "make_delta",
           "kind": "function",
-          "line": 73,
+          "line": 74,
           "signature": "before, after, base, revision"
         },
         {
           "name": "encode",
           "kind": "function",
-          "line": 87,
+          "line": 88,
           "signature": "frame"
         },
         {
           "name": "Published",
           "kind": "class",
-          "line": 92,
+          "line": 93,
           "bases": [],
           "methods": [
             {
               "name": "full",
-              "line": 99,
+              "line": 100,
               "signature": "self"
             }
           ]
@@ -803,27 +838,27 @@
         {
           "name": "SnapshotBroker",
           "kind": "class",
-          "line": 105,
+          "line": 106,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 111,
+              "line": 112,
               "signature": "self, service, battle_view_enabled=None"
             },
             {
               "name": "_run",
-              "line": 127,
+              "line": 128,
               "signature": "self"
             },
             {
               "name": "events",
-              "line": 167,
+              "line": 168,
               "signature": "self, request, *, hidden=False, protocol=2"
             },
             {
               "name": "close",
-              "line": 225,
+              "line": 226,
               "signature": "self, *, shutdown=False"
             }
           ]
@@ -832,9 +867,10 @@
     },
     {
       "path": "th06ai/control.py",
-      "sha256": "bab4f0d3d351877949ec825706cc864a1ca48e73c6afbc78943ca0a341f6755a",
+      "sha256": "76e8e753a1285f53b26e3d918c794ddabec2cb5e0b73a1fc8246e8229097f975",
       "summary": "Cooperative training controls. The independent hardware guard stays active.",
       "imports": [
+        ".game_phase",
         ".i18n",
         "__future__",
         "contextlib",
@@ -843,16 +879,62 @@
       ],
       "symbols": [
         {
+          "name": "SceneWaitBudget",
+          "kind": "class",
+          "line": 16,
+          "bases": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 19,
+              "signature": "self"
+            },
+            {
+              "name": "remaining",
+              "line": 23,
+              "signature": "self, step"
+            },
+            {
+              "name": "deduct",
+              "line": 30,
+              "signature": "self, step, elapsed"
+            }
+          ]
+        },
+        {
+          "name": "SessionStopwatch",
+          "kind": "class",
+          "line": 39,
+          "bases": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 42,
+              "signature": "self, now"
+            },
+            {
+              "name": "advance",
+              "line": 51,
+              "signature": "self, now"
+            },
+            {
+              "name": "set_wait",
+              "line": 63,
+              "signature": "self, now, *, paused=False, scene_step=None"
+            }
+          ]
+        },
+        {
           "name": "SamplingInterrupted",
           "kind": "class",
-          "line": 10,
+          "line": 68,
           "bases": [
             "Exception"
           ],
           "methods": [
             {
               "name": "__init__",
-              "line": 12,
+              "line": 70,
               "signature": "self, *args, stage_boundary=False, bootstrap_boundary=False, episode_end=None"
             }
           ]
@@ -860,56 +942,87 @@
         {
           "name": "FinishTraining",
           "kind": "class",
-          "line": 19,
+          "line": 77,
           "bases": [
             "Exception"
           ],
-          "methods": []
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 79,
+              "signature": "self, reason='manual'"
+            }
+          ]
         },
         {
           "name": "TrainingControl",
           "kind": "class",
-          "line": 23,
+          "line": 84,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 24,
-              "signature": "self, run_dir: Path, lease, status, *, clock=time.monotonic, sleep=time.sleep"
+              "line": 85,
+              "signature": "self, run_dir: Path, lease, status, *, budget_seconds=None, session_time=None, clock=time.monotonic, sleep=time.sleep"
             },
             {
               "name": "start",
-              "line": 34,
+              "line": 99,
+              "signature": "self"
+            },
+            {
+              "name": "timing",
+              "line": 108,
               "signature": "self"
             },
             {
               "name": "paused_seconds",
-              "line": 38,
+              "line": 119,
               "signature": "self"
             },
             {
               "name": "active_seconds",
-              "line": 42,
+              "line": 123,
               "signature": "self"
             },
             {
+              "name": "_active_budget",
+              "line": 126,
+              "signature": "self"
+            },
+            {
+              "name": "target_reached",
+              "line": 131,
+              "signature": "self"
+            },
+            {
+              "name": "budget_reached",
+              "line": 136,
+              "signature": "self"
+            },
+            {
+              "name": "check_budget",
+              "line": 139,
+              "signature": "self, frame=None, *, boundary=None"
+            },
+            {
               "name": "request_pause",
-              "line": 45,
+              "line": 163,
               "signature": "self, reason=msg('backend.paused_by_the_user')"
             },
             {
               "name": "suspended_budget",
-              "line": 50,
-              "signature": "self"
+              "line": 168,
+              "signature": "self, *, scene_step=None"
             },
             {
               "name": "gate",
-              "line": 61,
+              "line": 186,
               "signature": "self, game, *, resume_game=True"
             },
             {
               "name": "_wait_paused",
-              "line": 75,
+              "line": 200,
               "signature": "self, game, resume_game"
             }
           ]
@@ -917,7 +1030,7 @@
         {
           "name": "set_paused",
           "kind": "function",
-          "line": 93,
+          "line": 216,
           "signature": "run_dir: Path, paused: bool"
         }
       ]
@@ -1305,7 +1418,7 @@
     },
     {
       "path": "th06ai/environment.py",
-      "sha256": "f4b3d71c726e981a76bf088d9fd243b6ec8d77d8ce1c8127edbb9fe931c69548",
+      "sha256": "7f2c2667460e9617b36c53f6545855ac9cc5d5cd637c5e12c335403f2d9bffb2",
       "summary": "",
       "imports": [
         ".acceleration",
@@ -1335,204 +1448,344 @@
       ],
       "symbols": [
         {
+          "name": "_ActionSample",
+          "kind": "class",
+          "line": 29,
+          "bases": [],
+          "methods": []
+        },
+        {
           "name": "TouhouEnv",
           "kind": "class",
-          "line": 28,
+          "line": 41,
           "bases": [
             "gym.Env"
           ],
           "methods": [
             {
               "name": "__init__",
-              "line": 36,
+              "line": 49,
               "signature": "self, config: Config, lease: Callable, status: Callable"
             },
             {
               "name": "enable_diagnostics",
-              "line": 80,
+              "line": 94,
               "signature": "self, run_dir, mode"
             },
             {
               "name": "_timing",
-              "line": 86,
+              "line": 100,
               "signature": "self"
             },
             {
               "name": "_read_control",
-              "line": 91,
+              "line": 105,
               "signature": "self"
             },
             {
               "name": "_full_frame",
-              "line": 95,
+              "line": 109,
               "signature": "self, sample"
             },
             {
               "name": "record_policy_timing",
-              "line": 98,
+              "line": 112,
               "signature": "self, started_ns, completed_ns"
             },
             {
               "name": "record_pre_policy_work",
-              "line": 101,
+              "line": 115,
               "signature": "self, **milliseconds"
             },
             {
               "name": "record_decision",
-              "line": 104,
+              "line": 118,
               "signature": "self, decision, training_step=None"
             },
             {
               "name": "refresh_decision",
-              "line": 108,
+              "line": 122,
               "signature": "self"
             },
             {
               "name": "_consume_focus_request",
-              "line": 164,
+              "line": 182,
               "signature": "self"
             },
             {
               "name": "_acquire_focus",
-              "line": 173,
+              "line": 191,
               "signature": "self"
             },
             {
               "name": "_check_sampling_control",
-              "line": 200,
+              "line": 218,
               "signature": "self"
             },
             {
               "name": "_ensure_transaction_focus",
-              "line": 210,
+              "line": 228,
               "signature": "self"
             },
             {
               "name": "_wait",
-              "line": 226,
+              "line": 244,
               "signature": "self, seconds: float"
             },
             {
               "name": "wait_for_focus",
-              "line": 241,
+              "line": 259,
               "signature": "self"
             },
             {
               "name": "tap",
-              "line": 245,
+              "line": 263,
               "signature": "self, key: str, hold=0.16, gap=0.1"
             },
             {
               "name": "ensure_game_started",
-              "line": 255,
+              "line": 273,
               "signature": "self, restart=True"
             },
             {
               "name": "_verify_setup",
-              "line": 284,
+              "line": 302,
               "signature": "self, frame, *, stage_boundary=False"
             },
             {
               "name": "_return_to_title",
-              "line": 292,
+              "line": 310,
               "signature": "self"
             },
             {
               "name": "_enter_from_menu",
-              "line": 311,
+              "line": 329,
               "signature": "self"
             },
             {
               "name": "_frozen",
-              "line": 357,
+              "line": 382,
               "signature": "self"
             },
             {
+              "name": "release_input",
+              "line": 388,
+              "signature": "self"
+            },
+            {
+              "name": "_at_round_menu",
+              "line": 392,
+              "signature": "self, frame"
+            },
+            {
               "name": "pause",
-              "line": 363,
+              "line": 398,
               "signature": "self"
             },
             {
               "name": "_await_manual_pause",
-              "line": 391,
+              "line": 424,
               "signature": "self"
             },
             {
               "name": "_account_menu_gap",
-              "line": 407,
+              "line": 440,
+              "signature": "self, frame"
+            },
+            {
+              "name": "_remember_pause_frame",
+              "line": 454,
               "signature": "self, frame"
             },
             {
               "name": "resume",
-              "line": 421,
+              "line": 465,
               "signature": "self"
             },
             {
               "name": "_observe_control",
-              "line": 488,
+              "line": 554,
               "signature": "self, frame, action"
             },
             {
               "name": "pause_for_user",
-              "line": 496,
+              "line": 562,
               "signature": "self"
             },
             {
               "name": "resume_for_user",
-              "line": 523,
+              "line": 588,
               "signature": "self"
             },
             {
               "name": "_restart",
-              "line": 527,
+              "line": 592,
               "signature": "self"
             },
             {
               "name": "reset",
-              "line": 590,
+              "line": 658,
               "signature": "self, *, seed=None, options=None"
             },
             {
+              "name": "_practice_end_reason",
+              "line": 717,
+              "signature": "frame"
+            },
+            {
               "name": "_practice_result",
-              "line": 632,
-              "signature": "self, frame"
+              "line": 725,
+              "signature": "self, frame, *, death_probe_tick=None"
+            },
+            {
+              "name": "_story_end_reason",
+              "line": 734,
+              "signature": "frame, before"
+            },
+            {
+              "name": "_round_result",
+              "line": 747,
+              "signature": "self, frame, before, *, death_probe_tick=None"
+            },
+            {
+              "name": "_finish_round",
+              "line": 757,
+              "signature": "self, frame, origin, reason, death_probe_tick"
             },
             {
               "name": "step",
-              "line": 651,
+              "line": 779,
               "signature": "self, action"
             },
             {
               "name": "_pause_sampling",
-              "line": 665,
+              "line": 793,
               "signature": "self, reason, *, stage_boundary=False"
             },
             {
               "name": "_record_stage_context",
-              "line": 675,
+              "line": 803,
               "signature": "self, frame, before"
+            },
+            {
+              "name": "_confirmed_context_change",
+              "line": 836,
+              "signature": "before, frame"
+            },
+            {
+              "name": "_stage_transition_pending",
+              "line": 842,
+              "signature": "self, frame, before"
+            },
+            {
+              "name": "_check_sampling_scene",
+              "line": 855,
+              "signature": "self, frame, before, *, death_probe_tick=None"
+            },
+            {
+              "name": "_await_stage_transition",
+              "line": 867,
+              "signature": "self, frame, before, death_probe_tick"
             },
             {
               "name": "_rebase_sampling",
-              "line": 697,
-              "signature": "self, frame, before"
+              "line": 897,
+              "signature": "self, frame, before, *, death_probe_tick=None"
             },
             {
               "name": "_advance_dialogue",
-              "line": 720,
+              "line": 926,
               "signature": "self"
             },
             {
               "name": "_step",
-              "line": 755,
+              "line": 962,
               "signature": "self, action"
             },
             {
-              "name": "close",
+              "name": "_prepare_action",
+              "line": 967,
+              "signature": "self"
+            },
+            {
+              "name": "_check_action_capture",
               "line": 986,
+              "signature": "self, frame, before, baseline, timing, death_probe_tick"
+            },
+            {
+              "name": "_capture_action",
+              "line": 996,
+              "signature": "self, action, before, decision_plan"
+            },
+            {
+              "name": "_record_transition",
+              "line": 1055,
+              "signature": "self, sample"
+            },
+            {
+              "name": "_transition_info",
+              "line": 1110,
+              "signature": "self, sample, observation, feedback, latency, seconds, died, truncated"
+            },
+            {
+              "name": "_publish_transition",
+              "line": 1180,
+              "signature": "self, f, reward, info, diagnostics"
+            },
+            {
+              "name": "close",
+              "line": 1214,
               "signature": "self"
             }
           ]
+        }
+      ]
+    },
+    {
+      "path": "th06ai/evaluation.py",
+      "sha256": "8e5a9cc103b1065e4165a0268dceac5697c8185e0de782c0b389b0cab19710c0",
+      "summary": "Evidence from committed observations during a fixed-checkpoint evaluation.",
+      "imports": [
+        ".game_phase",
+        ".game_settings",
+        ".stage",
+        "collections",
+        "statistics"
+      ],
+      "symbols": [
+        {
+          "name": "EvaluationRound",
+          "kind": "class",
+          "line": 13,
+          "bases": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 14,
+              "signature": "self, frame, setup"
+            },
+            {
+              "name": "observe",
+              "line": 29,
+              "signature": "self, frame"
+            },
+            {
+              "name": "record_action",
+              "line": 85,
+              "signature": "self, info"
+            },
+            {
+              "name": "report",
+              "line": 103,
+              "signature": "self"
+            }
+          ]
+        },
+        {
+          "name": "summarize_rounds",
+          "kind": "function",
+          "line": 111,
+          "signature": "rows"
         }
       ]
     },
@@ -2196,11 +2449,12 @@
     },
     {
       "path": "th06ai/learning.py",
-      "sha256": "cd4f99a5b1bcb90ee5240b09771ac76b7b79a371407f1df8ba938a0f22bc015c",
+      "sha256": "084d1b13cbc515320c86268c81cc70bee43bbad6b0e400d76afef423a3e85e23",
       "summary": "",
       "imports": [
         ".config",
         ".control",
+        ".evaluation",
         ".files",
         ".game_settings",
         ".i18n",
@@ -2232,44 +2486,44 @@
         {
           "name": "make_model",
           "kind": "function",
-          "line": 31,
+          "line": 32,
           "signature": "env, device='cpu', seed=17"
         },
         {
           "name": "adapt_objective",
           "kind": "function",
-          "line": 55,
+          "line": 56,
           "signature": "model"
         },
         {
           "name": "save_model",
           "kind": "function",
-          "line": 64,
+          "line": 65,
           "signature": "model, path: Path, run_dir: Path, steps: int"
         },
         {
           "name": "load_model",
           "kind": "function",
-          "line": 94,
+          "line": 95,
           "signature": "path: Path, env, device='cpu'"
         },
         {
           "name": "migrate_legacy",
           "kind": "function",
-          "line": 133,
+          "line": 134,
           "signature": "path: Path, env, device='cpu'"
         },
         {
           "name": "TrainingCallback",
           "kind": "class",
-          "line": 209,
+          "line": 210,
           "bases": [
             "BaseCallback"
           ],
           "methods": [
             {
               "name": "__init__",
-              "line": 210,
+              "line": 211,
               "signature": "self, env, run_dir: Path, minutes: float, status, lease, control=None"
             },
             {
@@ -2289,37 +2543,37 @@
             },
             {
               "name": "_on_rollout_start",
-              "line": 273,
+              "line": 274,
               "signature": "self"
             },
             {
               "name": "_on_step",
-              "line": 307,
+              "line": 306,
               "signature": "self"
             },
             {
               "name": "record_episode_end",
-              "line": 328,
+              "line": 330,
               "signature": "self, info"
             },
             {
               "name": "flush_actions",
-              "line": 333,
+              "line": 340,
               "signature": "self"
             },
             {
               "name": "flush_observations",
-              "line": 353,
+              "line": 360,
               "signature": "self"
             },
             {
               "name": "_on_rollout_end",
-              "line": 417,
+              "line": 424,
               "signature": "self"
             },
             {
               "name": "_on_training_end",
-              "line": 431,
+              "line": 439,
               "signature": "self"
             }
           ]
@@ -2327,19 +2581,19 @@
         {
           "name": "train",
           "kind": "function",
-          "line": 465,
-          "signature": "config: Config, env, run_dir: Path, minutes: float, status, lease, resume: str | None"
+          "line": 482,
+          "signature": "config: Config, env, run_dir: Path, minutes: float, status, lease, resume: str | None, *, session_time=None"
         },
         {
           "name": "evaluate",
           "kind": "function",
-          "line": 500,
+          "line": 524,
           "signature": "model, env, run_dir: Path, status, lease, episodes=10"
         },
         {
           "name": "evaluation_report",
           "kind": "function",
-          "line": 551,
+          "line": 586,
           "signature": "model, env, rows, requested, complete=False"
         }
       ]
@@ -2429,7 +2683,7 @@
     },
     {
       "path": "th06ai/log_rows.py",
-      "sha256": "e5431fc9d65d076310e5656b782f6b158c3f692834944da101ec1f7aeceda342",
+      "sha256": "4bf36196ee158a3d5148f3574098c8927d5f4e3602625aea316eb3a400859100",
       "summary": "Canonical action/episode records; JSON encoding is deferred to file flush.",
       "imports": [
         ".files",
@@ -2447,13 +2701,13 @@
         {
           "name": "serialized_row",
           "kind": "function",
-          "line": 110,
+          "line": 111,
           "signature": "row"
         },
         {
           "name": "episode_row",
           "kind": "function",
-          "line": 120,
+          "line": 121,
           "signature": "info, steps, elapsed=None"
         }
       ]
@@ -2566,7 +2820,7 @@
     },
     {
       "path": "th06ai/native.py",
-      "sha256": "2c4a6de5fae3bfe7affce14df19e81545f03cd69ad1254f1d6200bb756283c97",
+      "sha256": "2f23469d037fa8ac6d45acbc2cc566f68f805556e84b89d99fd95f4b7c4b7070",
       "summary": "Version-pinned, read-only TH06NC state adapter.",
       "imports": [
         ".combat",
@@ -2610,42 +2864,42 @@
         {
           "name": "inspect_game",
           "kind": "function",
-          "line": 143,
+          "line": 147,
           "signature": "path: Path"
         },
         {
           "name": "Frame",
           "kind": "class",
-          "line": 162,
+          "line": 166,
           "bases": [],
           "methods": []
         },
         {
           "name": "ControlSample",
           "kind": "class",
-          "line": 200,
+          "line": 204,
           "bases": [],
           "methods": []
         },
         {
           "name": "_StateSnapshot",
           "kind": "class",
-          "line": 218,
+          "line": 222,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 219,
+              "line": 223,
               "signature": "self, world, actors"
             },
             {
               "name": "read",
-              "line": 222,
+              "line": 226,
               "signature": "self, rva, size"
             },
             {
               "name": "active",
-              "line": 229,
+              "line": 233,
               "signature": "self, base"
             }
           ]
@@ -2653,42 +2907,42 @@
         {
           "name": "GameReader",
           "kind": "class",
-          "line": 236,
+          "line": 240,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 237,
+              "line": 241,
               "signature": "self, game_exe: Path"
             },
             {
               "name": "read_control",
-              "line": 262,
+              "line": 266,
               "signature": "self"
             },
             {
               "name": "_read_blocks",
-              "line": 300,
+              "line": 304,
               "signature": "self, requests"
             },
             {
               "name": "_capture",
-              "line": 304,
+              "line": 308,
               "signature": "self"
             },
             {
               "name": "read",
-              "line": 346,
+              "line": 350,
               "signature": "self"
             },
             {
               "name": "_complete_frame",
-              "line": 433,
+              "line": 439,
               "signature": "self, frame, started_ns, input_bits, input_observed_ns"
             },
             {
               "name": "close",
-              "line": 508,
+              "line": 514,
               "signature": "self"
             }
           ]
@@ -2823,7 +3077,7 @@
     },
     {
       "path": "th06ai/pausable_ppo.py",
-      "sha256": "0c389157fc4fdd1c8e5a06f812c92988aa2a3f8af5c254cae99899c8dbbed512",
+      "sha256": "566fda79515a78d38aa14f96a5c1e93f7546ca561231559cc91dbeaaf4f8e6e5",
       "summary": "SB3's rollout protocol with a cooperative gate before each policy action.",
       "imports": [
         ".control",
@@ -2872,7 +3126,7 @@
     },
     {
       "path": "th06ai/planner_spec.py",
-      "sha256": "32ccf828d92e9ee878439fb8297649ad023be3223b3ee9905d86cb8102ecc0fd",
+      "sha256": "d85b19a5b776ffb73817348b889d225197966a66ab6956132825688caf00a91d",
       "summary": "Lightweight planning metadata; no NumPy/Torch in the hardware watchdog.",
       "imports": [
         ".i18n",
@@ -2896,7 +3150,7 @@
     },
     {
       "path": "th06ai/planning.py",
-      "sha256": "9d64a5fcb4ddb6c5d00d2425e6fa0c9ddadb55ff9aeb955155d93730ebcde6f8",
+      "sha256": "8a8feb0229c8badef07805990cdac5984ac2823fdfa93596cad28f6b818dbaf5",
       "summary": "Receding-horizon geometry search. Never sends keys or replaces an action.",
       "imports": [
         ".acceleration",
@@ -2949,58 +3203,63 @@
               "signature": "self, *args, **kwargs"
             },
             {
-              "name": "set_speeds",
+              "name": "_rank_warning_fallback",
               "line": 177,
+              "signature": "self, result, start, pending, low, high, bodies, damaging"
+            },
+            {
+              "name": "set_speeds",
+              "line": 231,
               "signature": "self, fast, slow"
             },
             {
               "name": "reset_timing",
-              "line": 185,
+              "line": 239,
               "signature": "self"
             },
             {
               "name": "record_latency",
-              "line": 191,
+              "line": 245,
               "signature": "self, timing"
             },
             {
               "name": "_timing_probe",
-              "line": 204,
+              "line": 258,
               "signature": "self, start, pending, delays, hold_ticks, low, high, bullets, velocity, radii, uncertainty, bodies"
             },
             {
               "name": "_switch_delays",
-              "line": 241,
+              "line": 295,
               "signature": "early, late"
             },
             {
               "name": "_goals",
-              "line": 248,
+              "line": 302,
               "signature": "self, frame, previous"
             },
             {
               "name": "_mobility",
-              "line": 275,
+              "line": 329,
               "signature": "self, positions, scores, allowed, low, high, tick, bullets, velocity, radii, bodies, confidence"
             },
             {
               "name": "_goal_quality",
-              "line": 304,
+              "line": 358,
               "signature": "starts, ends, duration, tick, items, weights, target, bounds"
             },
             {
               "name": "_edge",
-              "line": 324,
+              "line": 378,
               "signature": "starts, ends, low, high"
             },
             {
               "name": "_branches",
-              "line": 331,
+              "line": 385,
               "signature": "positions, last_actions, count, tick, bullets, velocity, radii, items, weights, target, low, high"
             },
             {
               "name": "plan",
-              "line": 368,
+              "line": 422,
               "signature": "self, frame, previous=None, control=None, state=None"
             }
           ]
@@ -3366,7 +3625,7 @@
     },
     {
       "path": "th06ai/supervisor.py",
-      "sha256": "c34fff1d5596a801359d8d05406d4ec1e235f4383e42b52ce1e4886a49644e1c",
+      "sha256": "8bbf71f423025534c0f16f6b1a9ed424ab6e38ad2b02a53ec66da591249cd7e4",
       "summary": "",
       "imports": [
         ".config",
@@ -3392,23 +3651,56 @@
       ],
       "symbols": [
         {
+          "name": "GuardedSessionClock",
+          "kind": "class",
+          "line": 25,
+          "bases": [],
+          "methods": [
+            {
+              "name": "__init__",
+              "line": 28,
+              "signature": "self, now, budget_seconds, mode"
+            },
+            {
+              "name": "observe",
+              "line": 35,
+              "signature": "self, now, worker"
+            },
+            {
+              "name": "target_reached",
+              "line": 51,
+              "signature": "self"
+            },
+            {
+              "name": "expired",
+              "line": 55,
+              "signature": "self"
+            },
+            {
+              "name": "snapshot",
+              "line": 59,
+              "signature": "self"
+            }
+          ]
+        },
+        {
           "name": "GuardResult",
           "kind": "class",
-          "line": 21,
+          "line": 66,
           "bases": [],
           "methods": []
         },
         {
           "name": "run_guard",
           "kind": "function",
-          "line": 28,
+          "line": 73,
           "signature": "config: Config, mode: str, minutes: float | None=None, model: str | None=None, *, run_dir: Path | None=None, goal: str | None=None, game_setup=None, profile_kind: str | None=None, profile_wait_combat: bool=False, reader_factory: Callable | None=None, child_command: list[str] | None=None, release_fn: Callable | None=None, hotkey_fn: Callable | None=None, pause_hotkey_fn: Callable | None=None, hotkeys_factory: Callable | None=None, verbose: bool=True"
         }
       ]
     },
     {
       "path": "th06ai/web_console.py",
-      "sha256": "1c7db31ad76fcc63a84f5f1543f6b8a64256a7550902a2bcd0dfd7721c2144cf",
+      "sha256": "1107a038eaf013e3067fe43d698419c1ac0cd32b3707969d10557f9a164698b6",
       "summary": "Loopback REST/SSE server and static frontend; owns no CUDA/game handles.",
       "imports": [
         ".battle_view",
@@ -3871,7 +4163,7 @@
     },
     {
       "path": "th06ai/worker.py",
-      "sha256": "df60ee046a44d1b5831c02d0b35769e7e56092a4cdd6a7cdf8c6abb57754b644",
+      "sha256": "fa23e3bea07cf78ca689e2cca3859557025c03052c54628c89d023dfa109b1a7",
       "summary": "",
       "imports": [
         ".backend",
@@ -3918,26 +4210,31 @@
             {
               "name": "__init__",
               "line": 28,
-              "signature": "self, run_dir: Path, shared_lease: SharedLease | None=None, safety: SafetyConfig | None=None"
+              "signature": "self, run_dir: Path, shared_lease: SharedLease | None=None, safety: SafetyConfig | None=None, *, track_session=False"
             },
             {
               "name": "update",
-              "line": 44,
+              "line": 47,
               "signature": "self, **values"
             },
             {
+              "name": "session_time",
+              "line": 54,
+              "signature": "self"
+            },
+            {
               "name": "_run",
-              "line": 48,
+              "line": 57,
               "signature": "self"
             },
             {
               "name": "lease",
-              "line": 59,
+              "line": 74,
               "signature": "self"
             },
             {
               "name": "close",
-              "line": 97,
+              "line": 112,
               "signature": "self"
             }
           ]
@@ -3945,19 +4242,19 @@
         {
           "name": "measure_movement",
           "kind": "function",
-          "line": 106,
+          "line": 122,
           "signature": "env, focused=False"
         },
         {
           "name": "calibrate",
           "kind": "function",
-          "line": 136,
+          "line": 152,
           "signature": "env, run_dir: Path, heartbeat: Heartbeat"
         },
         {
           "name": "main",
           "kind": "function",
-          "line": 187,
+          "line": 203,
           "signature": ""
         }
       ]

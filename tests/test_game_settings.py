@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from th06ai import learning, native
-from th06ai.control import SamplingInterrupted
+from th06ai.control import SamplingInterrupted, TrainingControl
 from th06ai.game_settings import (GameSetup, parse_setup, decode_identity, context_vector,
                                   CONTEXT_FEATURES, menu_key, observed_settings)
 from th06ai.game_phase import classify
@@ -281,6 +281,76 @@ def test_practice_result_closes_episode_without_fake_combat_reward_or_action():
     assert info['episode_end_reason']=='practice_result' and not info['died']
     assert info['survival_seconds']==5 and 'action' not in info
     assert not actions and releases and env.total_steps==0
+
+
+@pytest.fixture
+def practice_return():
+    before = replace(frame(tick=9135), phase='boss', difficulty='lunatic',
+                     character='reimu_a', game_mode='practice', stage_id=1)
+    menu = replace(before, tick=9347, phase='practice_stage', stage_active=False,
+                   stage_id=None, difficulty=None, character=None, game_mode=None,
+                   menu_selection=0, menu_ready=True, phase_evidence={
+                       'practice_menu':True, 'practice_stage_count':1,
+                       'menu_confirmed_settings':{'difficulty':'lunatic', 'character':'reimu', 'shot':'a'},
+                   })
+    env, actions, _, _ = game(before, menu)
+    env.goal = 'survival'
+    env.game_setup = GameSetup(mode='practice', difficulty='lunatic', character='reimu_a', stage=1)
+    env._practice_origin = before
+    return env, actions, before, menu
+
+
+def test_practice_script_exit_restarts_selected_stage_without_a_combat_sample(practice_return, tmp_path):
+    env, actions, before, menu = practice_return
+    env.training_control = TrainingControl(tmp_path, env.lease, env.status)
+    # The stage clears before the native engine has switched to the menu.
+    incomplete = replace(before, tick=9346, stage_id=None, game_mode='story', phase='combat')
+    loading = replace(menu, phase='menu_transition', phase_evidence={})
+    frames = iter((replace(before, phase='script_wait'), incomplete, loading, menu))
+    env.reader.read = lambda: next(frames, menu)
+    with pytest.raises(SamplingInterrupted) as error:
+        env._advance_dialogue()
+    info = error.value.episode_end
+    assert info['episode_end_reason'] == 'practice_return' and not info['died']
+    assert info['stage_id'] == 1 and info['game_settings']['difficulty'] == 'lunatic'
+    assert env.total_steps == 0 and actions == []
+    assert not (tmp_path / 'PAUSE').exists() and not hasattr(env, 'last_stage_transition')
+
+    entered = replace(before, tick=2, phase='combat')
+    def tap(key, **kwargs):
+        actions.append(key)
+        env.reader.read = lambda: entered
+    env.tap = tap
+    env._restart()
+    assert actions == ['z'] and env.current is entered
+
+
+@pytest.mark.parametrize('resumed_at_menu', (False, True))
+def test_practice_sampler_recognizes_menu_after_fast_probe_or_user_resume(practice_return, resumed_at_menu):
+    env, actions, _, menu = practice_return
+    env.reader.window.focused = True
+    probe = replace(menu, phase='menu_transition', menu_ready=False, phase_evidence={})
+    frames = iter((probe, menu))
+    env.reader.read = lambda: next(frames, menu)
+    env.reader.read_control = lambda: native.ControlSample(
+        menu.tick, menu.x, menu.y, menu.state, False, False, None, 'menu_transition', None, 0, 0, 0)
+    if resumed_at_menu:
+        env.reader.read = lambda: menu
+        env.resume()
+        assert not getattr(env, 'pending_stage_boundary', False)
+    with pytest.raises(SamplingInterrupted) as error:
+        env.refresh_decision()
+    assert error.value.episode_end['episode_end_reason'] == 'practice_return'
+    assert actions == []
+
+
+def test_practice_return_requires_menu_evidence_and_preserves_observed_miss(practice_return):
+    env, actions, _, menu = practice_return
+    env._practice_result(replace(menu, phase_evidence={}))
+    with pytest.raises(SamplingInterrupted) as error:
+        env._practice_result(menu, death_probe_tick=menu.tick-1)
+    assert error.value.episode_end['episode_end_reason'] == 'death'
+    assert error.value.episode_end['died'] and actions == []
 
 
 def test_session_passes_an_immutable_setup_and_rejects_bad_combinations(setup):

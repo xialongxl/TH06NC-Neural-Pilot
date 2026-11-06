@@ -41,6 +41,13 @@ def test_display_stream_retains_the_actual_session_goal():
     assert shown['session']['worker']['episode_bombs_used']==0
 
 
+def test_display_stream_retains_stage_overtime_and_finish_reason():
+    raw = state()
+    raw['session']['worker'].update(overtime_stage=3, training_finish_reason='saved')
+    worker = display_state(raw)['session']['worker']
+    assert worker['overtime_stage'] == 3 and worker['training_finish_reason'] == 'saved'
+
+
 def test_live_delta_does_not_repeat_catalog_configuration_or_history():
     old = display_state(state())
     new = copy.deepcopy(old)
@@ -180,6 +187,16 @@ def test_cached_files_invalidate_after_atomic_replacement_and_old_snapshots_stay
     assert before["session"]["worker"]["steps"] == 42
     assert len(after["gpu_history"]) == 2 and len(before["gpu_history"]) == 1
     assert not calls
+
+
+def test_gpu_history_ignores_a_late_snapshot_of_an_older_sample(setup):
+    root, _, service, _, _, _ = setup
+    run = session(root)
+    first = service._gpu_history(run, {'monotonic': 1, 'temperature_c': 49})
+    latest = service._gpu_history(run, {'monotonic': 2, 'temperature_c': 50})
+    late = service._gpu_history(run, {'monotonic': 1, 'temperature_c': 49})
+    assert late is latest and [point['stamp'] for point in latest] == [1, 2]
+    assert len(first) == 1
 
 
 def test_unchanged_logs_return_304_and_new_data_invalidates_etag(setup):

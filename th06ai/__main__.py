@@ -71,12 +71,12 @@ def main():
         finally:
             gpu.close()
         return
-    from .supervisor import run_guard
+    from .supervisor import GAME_MODES, run_guard
     if args.run_dir is not None:
         target = args.run_dir.resolve()
-        # An immediate UI stop can arrive before this process finishes
-        # starting. Keep that cancellation marker; it is not an old run.
-        used = target.exists() and (not target.is_dir() or any(p.name != "STOP" or not p.is_file() for p in target.iterdir()))
+        # A stop or graceful shutdown can arrive before the guard starts.
+        markers = {'STOP', 'FINISH'} if args.command in GAME_MODES else {'STOP'}
+        used = target.exists() and (not target.is_dir() or any(p.name not in markers or not p.is_file() for p in target.iterdir()))
         if not target.is_relative_to((ROOT / "runs").resolve()) or used:
             parser.error(ui_text('backend.the_run_directory_must_be_unused_and'))
     result = run_guard(config, args.command, args.minutes, args.model, run_dir=args.run_dir,

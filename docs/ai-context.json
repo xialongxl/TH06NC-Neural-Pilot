@@ -9,7 +9,7 @@
   "configuration": {"file": "config.json", "example": "config.example.json", "dotenv_auto_load": false},
   "transport": {"controls": "same-origin REST with X-Console-Token", "display": "incremental SSE JSON v2", "websocket": false, "database": null},
   "ports": {"console": 18765, "preview": 18766},
-  "versions": {"observation": 9, "reward": 9, "policy": 2, "planner": 7, "action_timing": 3, "native": 3, "native_search": 1, "ui_protocol": 2},
+  "versions": {"observation": 9, "reward": 9, "policy": 2, "planner": 8, "action_timing": 3, "native": 3, "native_search": 1, "ui_protocol": 2},
   "components": [
     {"id": "game_settings", "path": "th06ai/game_settings.py", "symbols": ["GameSetup", "decode_identity", "menu_key", "context_vector"], "depends_on": []},
     {"id": "cli", "path": "th06ai/__main__.py", "symbols": ["main"], "depends_on": ["configuration", "lifecycle", "guard"]},
@@ -18,7 +18,7 @@
     {"id": "api", "path": "th06ai/web_console.py", "symbols": ["create_app"], "depends_on": ["service", "stream"]},
     {"id": "service", "path": "th06ai/console_service.py", "symbols": ["ConsoleService"], "depends_on": ["model_store", "guard"]},
     {"id": "stream", "path": "th06ai/console_stream.py", "symbols": ["SnapshotBroker"], "depends_on": ["service"]},
-    {"id": "guard", "path": "th06ai/supervisor.py", "symbols": ["run_guard"], "depends_on": ["gpu", "lease", "worker"]},
+    {"id": "guard", "path": "th06ai/supervisor.py", "symbols": ["run_guard", "GuardedSessionClock"], "depends_on": ["gpu", "lease", "worker"]},
     {"id": "gpu", "path": "th06ai/gpu.py", "symbols": ["SafetyPolicy", "NvmlReader", "AsyncTelemetry"], "depends_on": ["configuration"]},
     {"id": "lease", "path": "th06ai/lease.py", "symbols": ["SharedLease", "LeaseBusy"], "depends_on": []},
     {"id": "worker", "path": "th06ai/worker.py", "symbols": ["main", "Heartbeat", "calibrate"], "depends_on": ["lease", "environment", "learning"]},

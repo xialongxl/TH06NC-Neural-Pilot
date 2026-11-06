@@ -14,7 +14,7 @@ import numpy as np
 from .bullet_state import visible_bullet_state
 from .body_state import visible_body_state
 from .input_timing import TimingWindow, FRAME_MS, clock_ns
-from .navigation import NAV_FEATURES, DECISION_FEATURES, MOBILITY_WEIGHT, EXIT_WEIGHT, EXIT_PROBE_LIMIT, EXIT_TICKS
+from .navigation import NAV_FIELDS, DECISION_FIELDS, MOBILITY_WEIGHT, EXIT_WEIGHT, EXIT_PROBE_LIMIT, EXIT_TICKS
 from .planner_spec import (PlanningConfig, PLANNER_VERSION, PLAN_MOVEMENTS, PLAN_FEATURES,
                            PLAN_LOGIT_SCALE, HORIZON_TICKS, DELAY_TICKS, SEGMENT_TICKS, MAX_SEARCH_NODES)
 
@@ -173,6 +173,60 @@ class RollingPlanner:
         if self.collision_backend=='rust':
             return rust_sweep(*args, **kwargs)
         return swept_segments(*args, **kwargs)
+
+    def _rank_warning_fallback(self, result, start, pending, low, high, bodies, damaging):
+        diagnostics = result.diagnostics
+        if (not diagnostics['all_routes_risky'] or not diagnostics['timing_interval_complete']
+                or diagnostics['immediate_contact_free_roots'] != 0 or damaging.all()):
+            return result
+
+        # The nominal probe covers known damaging hazards at every tested
+        # switch time. Its entire short window lies inside the horizon.
+        nav = result.navigation
+        nominal = (nav[:, NAV_FIELDS.index('nominal_collision')] >= 1.) & (result.features[:, 4] == 0)
+        if not nominal.any():
+            return result
+
+        live = bodies.subset(damaging)
+        if len(live.positions):
+            live = replace(live, uncertainty=np.full_like(live.uncertainty, SELF_SPEED_ERROR))
+            empty = np.empty((0, 2), np.float32)
+            live_free, _, _, _ = self._timing_probe(start, pending, diagnostics['tested_switch_delays'],
+                diagnostics['timing_probe_hold_ticks'], low, high, empty, empty, np.empty(0), np.empty(0), live)
+            nominal &= live_free
+
+        old_allowed = result.features[:, 1] > 0
+        if nominal.any() and (old_allowed & ~nominal).any():
+            allowed = old_allowed & nominal
+            if not allowed.any():
+                # Keep the full forecast, including warning beams, for ranking
+                # when the old fallback has no direction left in this subset.
+                horizon = diagnostics['horizon_ticks']
+                hit = nav[:, NAV_FIELDS.index('action_collision')] * horizon
+                allowed = nominal & (hit >= hit[nominal].max() - .5)
+                clear = nav[:, NAV_FIELDS.index('action_clearance')] * 64
+                allowed &= clear >= clear[allowed].max() - 1.
+            features = result.features.copy()
+            features[:, 1] = allowed
+            best = diagnostics['suggested_movement']
+            if not allowed[best]:
+                utility = features[:, 6]
+                best = int(np.argmax(np.where(allowed, utility, -np.inf)))
+                features[:, 7] = np.clip((utility - utility[best]) * (64 / PLAN_LOGIT_SCALE), -1, 0)
+            decision = result.decision.copy()
+            decision[DECISION_FIELDS.index('safe_exit_fraction')] = nav[best, NAV_FIELDS.index('exit_fraction')]
+            diagnostics = {**diagnostics, 'active_threat_priority': True, 'allowed_roots': int(allowed.sum()),
+                           'suggested_movement': best,
+                           'wall_space': float(nav[best, NAV_FIELDS.index('wall_space')]),
+                           'exit_fraction': float(nav[best, NAV_FIELDS.index('exit_fraction')]),
+                           'exit_measured': bool(nav[best, NAV_FIELDS.index('exit_measured')]),
+                           'estimated_clearance': float(result.clearances[best]) if np.isfinite(result.clearances[best]) else None,
+                           'predicted_collision_tick': float(result.collision_times[best]) if np.isfinite(result.collision_times[best]) else None}
+            result = replace(result, features=features, decision=decision, diagnostics=diagnostics)
+        completed = clock_ns()
+        self.last_elapsed_ms = (completed - result.started_ns) / 1e6
+        return replace(result, completed_ns=completed,
+                       diagnostics={**result.diagnostics, 'elapsed_ms': round(self.last_elapsed_ms, 3)})
 
     def set_speeds(self, fast, slow):
         if not (np.isfinite(fast) and np.isfinite(slow) and 0 < slow <= fast < 20):
@@ -422,7 +476,9 @@ class RollingPlanner:
         body_distance = np.linalg.norm(body_relative+all_bodies.velocity*closest_body_tick[:, None], axis=1)
         body_reach = (self.fast_speed*horizon+np.linalg.norm(all_bodies.half_extents, axis=1)
                       +all_bodies.player_radius+COLLISION_PADDING+all_bodies.uncertainty*horizon)
-        bodies = all_bodies.subset(body_distance <= body_reach)
+        body_relevant = body_distance <= body_reach
+        bodies = all_bodies.subset(body_relevant)
+        damaging = np.r_[np.ones(len(frame.enemy_bodies), bool), frame.lasers[:, 7] == 1][body_relevant]
         work_size = len(bullets)+4*len(bodies.positions)
         if work_size > 128 and future_steps:
             # Dense scenes use a complete one-turn forecast instead of a
@@ -442,9 +498,7 @@ class RollingPlanner:
         if self.search_backend=='rust':
             from .acceleration import rust_plan
             known=state.known_motion[relevant] & state.known_geometry[relevant]
-            body_known=bodies.known_motion & bodies.known_geometry
-            damage=np.r_[np.ones(len(frame.enemy_bodies),bool),frame.lasers[:,7]==1]
-            if len(damage)==len(all_bodies.positions):body_known &= damage[body_distance<=body_reach]
+            body_known=bodies.known_motion & bodies.known_geometry & damaging
             pending=self.velocities[int(np.argmax(control[:18]))] if control[19]>.5 else np.asarray(control[20:22])*16
             items,weights,target=self._goals(frame,previous)
             switch_delays,timing_complete=self._switch_delays(early,late)
@@ -482,8 +536,9 @@ class RollingPlanner:
                 'wall_space':wall_space,'exit_fraction':exit_fraction,'exit_measured':bool(exit_measured),
                 'suggested_movement':best,'estimated_clearance':float(minimum[best]) if np.isfinite(minimum[best]) else None,
                 'predicted_collision_tick':float(collision[best]) if np.isfinite(collision[best]) else None,'elapsed_ms':round(elapsed_ms,3)}
-            return PlanResult(features,paths,diagnostics,minimum,collision,completed_ns=clock_ns(),started_ns=started_ns,
-                              navigation=navigation,decision=decision)
+            result = PlanResult(features,paths,diagnostics,minimum,collision,completed_ns=clock_ns(),started_ns=started_ns,
+                                navigation=navigation,decision=decision)
+            return self._rank_warning_fallback(result, start, pending, low, high, bodies, damaging)
         hint_positions = np.concatenate((bullets, bodies.positions))
         hint_velocity = np.concatenate((velocity, bodies.velocity))
         hint_radii = np.concatenate((radii, np.linalg.norm(bodies.half_extents, axis=1)+bodies.player_radius))
@@ -574,13 +629,9 @@ class RollingPlanner:
         fallback = not bool(allowed.any())
         known = state.known_motion[relevant] & state.known_geometry[relevant]
         confirmed_bullets,confirmed_velocity,confirmed_radii = bullets[known],velocity[known],radii[known]
-        body_known = bodies.known_motion & bodies.known_geometry
+        body_known = bodies.known_motion & bodies.known_geometry & damaging
         # Warning lasers remain robust planning obstacles, but are not evidence
         # of an already damaging beam for rescue exploration.
-        all_damage = np.r_[np.ones(len(frame.enemy_bodies),bool), frame.lasers[:,7]==1]
-        if len(all_damage)==len(all_bodies.positions):
-            relevant_body = body_distance <= body_reach
-            body_known &= all_damage[relevant_body]
         confirmed_bodies = replace(bodies.subset(body_known),uncertainty=np.zeros(int(body_known.sum()),np.float32))
         nominal_free,nominal_hit,nominal_action_hit,nominal_action_clear = self._timing_probe(
                 start,pending,switch_delays,max(8,SEGMENT_TICKS[0]),low,high,
@@ -645,7 +696,7 @@ class RollingPlanner:
                              min(age_ms/(FRAME_MS*horizon),1.),float(exit_fraction[best])],np.float32)
         elapsed_ms = (time.perf_counter()-started)*1000
         self.last_elapsed_ms, self.last_visible = elapsed_ms, scene_load
-        return PlanResult(features, paths.astype(np.float32), {
+        result = PlanResult(features, paths.astype(np.float32), {
                 "enabled": True, "version": PLANNER_VERSION, "horizon_ticks": horizon,
                 'collision_backend':self.collision_backend,'search_backend':'python','visible_lasers':len(frame.lasers),
                 "delay_ticks": delay, "beam_width": beam, "branch_limit": branches,
@@ -682,3 +733,4 @@ class RollingPlanner:
                 "predicted_collision_tick": float(collision[best]) if np.isfinite(collision[best]) else None,
                 "elapsed_ms": round(elapsed_ms, 3)}, minimum, collision,
                 completed_ns=clock_ns(), started_ns=started_ns,navigation=navigation,decision=decision)
+        return self._rank_warning_fallback(result, start, pending, low, high, bodies, damaging)

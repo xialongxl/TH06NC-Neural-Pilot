@@ -217,7 +217,7 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     async def close_server(request: Request):
         if shutdown is None:
             raise ConsoleError(msg('backend.this_service_does_not_support_browser_shutdown'), 409)
-        result = service.request_shutdown(port=request.url.port or DEFAULT_CONSOLE_PORT)
+        result = await asyncio.to_thread(service.request_shutdown, port=request.url.port or DEFAULT_CONSOLE_PORT)
         if result['state'] != 'stopping' and (app.state.shutdown_task is None or app.state.shutdown_task.done()):
             app.state.shutdown_task = asyncio.create_task(finish_shutdown())
         return {**result, 'message': result['message']}

@@ -23,7 +23,7 @@ export function changeSetup(previous: GameSetup, changes: Partial<GameSetup>): G
   return next
 }
 
-export function gameSettingsLabel(value?: GameSettings, locale: Locale = 'zh-CN'): string {
+export function gameSettingsLabel(value?: GameSettings | null, locale: Locale = 'zh-CN'): string {
   const message = translator(locale)
   if (!value) return message("console.waiting_for_game_settings")
   const modes = { story: message("console.story"), practice: 'Practice', challenge: message("console.challenge_mode"), spell_practice: message("console.spell_practice") }

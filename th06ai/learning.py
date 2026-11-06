@@ -26,6 +26,7 @@ from .input_timing import clock_ns
 from .log_rows import action_row, episode_row, serialized_row
 from .navigation import NAV_FIELDS, DECISION_FIELDS, RESCUE_BOMB_PRIOR
 from .game_settings import CONTEXT_FIELDS, observed_settings
+from .evaluation import EVALUATION_REPORT_VERSION, EvaluationRound, summarize_rounds
 
 
 def make_model(env, device="cpu", seed=17):
@@ -68,7 +69,7 @@ def save_model(model, path: Path, run_dir: Path, steps: int):
     temporary = path.with_name(path.stem + ".pending.zip")
     model.save(temporary)
     preserve_checkpoint(path, ROOT / "models")
-    # Checkpoints are only written while the game is confirmed paused.
+    # Periodic saves follow the update pause. Final saves follow input release.
     temporary.replace(path)
     atomic_json(path.with_suffix(".json"), {"time": timestamp(), "game_sha256": SHA256,
                 "model_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -215,7 +216,6 @@ class TrainingCallback(BaseCallback):
         self.status = status
         self.lease = lease
         self.started = None
-        self.last_checkpoint = 0
         self.last_checkpoint_updates = 0
         self.pending_checkpoint = False
         self.rollouts = 0
@@ -242,11 +242,12 @@ class TrainingCallback(BaseCallback):
         self.game.pause_for_user() if hasattr(self.game, "pause_for_user") else self.game.pause()
 
     def _on_training_start(self):
-        self.started = time.monotonic()
         self.base_steps = self.model.num_timesteps
         self.last_checkpoint_updates = self.model._n_updates
         if self.control:
             self.control.start()
+        else:
+            self.started = time.monotonic()
         self.pause_game()
         import torch
         observation = self.game.builder.build(self.game.current)
@@ -262,7 +263,7 @@ class TrainingCallback(BaseCallback):
                     device=str(self.model.device), reward_version=REWARD_VERSION,
                     observation_version=OBSERVATION_VERSION, action_timing_version=ACTION_TIMING_VERSION,
                     steps=self.base_steps, base_steps=self.base_steps, session_steps=0,
-                    updates=self.model._n_updates, budget_seconds=self.minutes * 60,
+                    updates=self.model._n_updates,
                     model_source=getattr(self.model, "source_checkpoint", None),
                     migrated_from=getattr(self.model, "migrated_from", None),
                     policy_version=POLICY_VERSION, bomb_prior=BOMB_PRIOR,
@@ -275,7 +276,6 @@ class TrainingCallback(BaseCallback):
         if self.update_started_ns is not None:
             self.status(ppo_update_and_callbacks_ms=(clock_ns()-self.update_started_ns)/1e6)
         self.rollout_first_step = int(self.num_timesteps)+1
-        elapsed = self.elapsed()
         # Each completed update is saved while the game remains paused.
         # Don't overwrite latest with an unchanged checkpoint at session start.
         if (self.model._n_updates > self.last_checkpoint_updates and
@@ -284,7 +284,6 @@ class TrainingCallback(BaseCallback):
             path = save_model(self.model, ROOT / "models" / "latest.zip", self.run_dir, self.num_timesteps)
             self.rollout_checkpoint = str(path) if path else None
             self.last_checkpoint_updates = self.model._n_updates
-            self.last_checkpoint = elapsed
             self.last_checkpoint_rollout = self.rollouts
             self.status(checkpoint=str(path or ROOT / "models" / "latest.zip"),
                         checkpoint_save_ms=(clock_ns()-checkpoint_started)/1e6)
@@ -319,16 +318,24 @@ class TrainingCallback(BaseCallback):
         for done, info in zip(self.locals.get("dones", []), self.locals.get("infos", [])):
             if done:
                 self.record_episode_end(info)
-        self.status(steps=int(self.num_timesteps), training_seconds=round(elapsed, 1),
+        self.status(steps=int(self.num_timesteps),
                     session_steps=int(self.num_timesteps - self.base_steps),
                     bomb_requests=self.bomb_requests, bombs_used=self.bombs_used,
-                    fps=round((self.num_timesteps - self.base_steps) / max(elapsed, .001), 1))
-        return elapsed < self.minutes * 60
+                    fps=round((self.num_timesteps - self.base_steps) / elapsed, 1) if elapsed else None)
+        if self.control is not None and self.control.budget_seconds is not None:
+            self.control.check_budget(self.game.current)
+            return True
+        return elapsed is None or elapsed < self.minutes * 60
 
     def record_episode_end(self, info):
-        row = episode_row(info, self.num_timesteps, round(self.elapsed(), 3))
+        elapsed = self.elapsed()
+        row = episode_row(info, self.num_timesteps, round(elapsed, 3) if elapsed is not None else None)
         self.episode_rows.append(row)
         self.pending_episode_rows.append(row)
+        if self.control is not None:
+            reason = info.get('episode_end_reason')
+            boundary = 'stage_result' if reason in ('practice_result', 'story_result') else 'stage_ended'
+            self.control.check_budget(boundary=boundary)
 
     def flush_actions(self):
         if self.pending_episode_rows:
@@ -353,8 +360,8 @@ class TrainingCallback(BaseCallback):
     def flush_observations(self):
         """Save the actual PPO input, not a reconstructed scene or a demo.
 
-        Runs only while paused. The buffer already contains CPU arrays; this
-        adds no GPU round trip or disk write to the per-action inference path.
+        Runs between rollouts or after sampling ends. The buffer contains CPU
+        arrays, so this stays off the per-action inference path.
         Traces are diagnostic; an I/O failure must not kill game training.
         """
         buffer = self.model.rollout_buffer
@@ -426,21 +433,29 @@ class TrainingCallback(BaseCallback):
             self.control.gate(self.game, resume_game=False)
         self.rollouts += 1
         self.update_started_ns = clock_ns()
-        self.status(phase=msg('backend.updating_the_policy_with_ppo'), updates=self.model._n_updates)
+        self.status(phase=msg('backend.updating_the_policy_with_ppo'), updates=self.model._n_updates,
+                    message=msg('backend.the_game_resumes_after_the_ppo_update'))
 
     def _on_training_end(self):
-        self.pause_game()
+        # The rollout and updates are finished. Game capture belongs to
+        # environment cleanup and must not be a prerequisite for saving.
+        if hasattr(self.game, 'release_input'):
+            self.game.release_input()
+        else:
+            self.pause_game()
         self.lease()
-        self.flush_actions()
-        self.flush_observations()
         if self.model._n_updates > 0:
             path = save_model(self.model, ROOT / "models" / "latest.zip", self.run_dir, self.num_timesteps)
             self.status(checkpoint=str(path or ROOT / "models" / "latest.zip"))
         else:
             self.status(message=msg('backend.no_parameter_updates_completed_the_initial_random'))
+        self.flush_actions()
+        self.flush_observations()
         self.status(updates=self.model._n_updates, steps=int(self.num_timesteps),
                     session_steps=int(self.num_timesteps - self.base_steps),
-                    training_seconds=round(self.elapsed(), 2))
+                    training_finish_reason=self.finish_reason)
+        timing = self.control.timing() if self.control else {'training_seconds': self.elapsed(),
+                                                            'paused_seconds': 0, 'budget_seconds': self.minutes * 60}
         atomic_json(self.run_dir / "training_summary.json", {
             "algorithm": "PPO", "steps": int(self.num_timesteps), "rollouts": self.rollouts,
             "gradient_updates": self.model._n_updates,
@@ -448,9 +463,11 @@ class TrainingCallback(BaseCallback):
             "observation_version": OBSERVATION_VERSION,
             'episode_seconds': getattr(self.game, 'episode_seconds', None),
             'stage_aware': True,
-            "elapsed_seconds": self.elapsed(), "episodes": len(self.episode_rows),
+            "elapsed_seconds": timing.get('training_seconds'), "episodes": len(self.episode_rows),
             "session_steps": int(self.num_timesteps - self.base_steps), "base_steps": self.base_steps,
-            "paused_seconds": self.control.paused_seconds if self.control else 0,
+            "paused_seconds": timing.get('paused_seconds'),
+            "budget_seconds": timing.get('budget_seconds'),
+            "overtime_stage": self.control.overtime_stage if self.control else None,
             "finish_reason": self.finish_reason,
             "source_checkpoint": getattr(self.model, "source_checkpoint", None),
             "policy_version": POLICY_VERSION, "bomb_requests": self.bomb_requests, "bombs_used": self.bombs_used,
@@ -462,7 +479,7 @@ class TrainingCallback(BaseCallback):
             "note": msg('backend.use_evaluate_to_measure_model_performance_independently')})
 
 
-def train(config: Config, env, run_dir: Path, minutes: float, status, lease, resume: str | None):
+def train(config: Config, env, run_dir: Path, minutes: float, status, lease, resume: str | None, *, session_time=None):
     import torch
     torch.set_num_threads(1)
     if config.device == "cuda":
@@ -475,18 +492,25 @@ def train(config: Config, env, run_dir: Path, minutes: float, status, lease, res
     model.training_goal = config.goal
     from .inference import PolicyRunner
     model.decision_runner = PolicyRunner(model.policy, config.inference_backend)
-    control = TrainingControl(run_dir, lease, status)
+    control = TrainingControl(run_dir, lease, status, budget_seconds=minutes * 60, session_time=session_time)
     env.training_control = control
     model.training_control, model.training_game = control, env
     callback = TrainingCallback(env, run_dir, minutes, status, lease, control)
-    # Wall time, not an assumed FPS, controls the user's one-hour budget.
+    # The active-time target can finish at the boundary of the current stage.
     try:
         model.learn(total_timesteps=10_000_000, callback=callback, reset_num_timesteps=not bool(resume))
-    except FinishTraining:
-        callback.finish_reason = msg('backend.save_and_finish_requested')
+    except FinishTraining as finish:
+        callback.finish_reason = msg({
+            'manual': 'backend.save_and_finish_requested',
+            'time_limit': 'backend.session_time_limit_reached',
+            'stage_complete': 'backend.training_target_reached_stage_complete',
+            'stage_result': 'backend.training_target_reached_stage_result',
+            'stage_ended': 'backend.training_target_reached_attempt_ended',
+            'overtime_limit': 'backend.training_overtime_limit_reached',
+        }[finish.reason])
         control.finishing = True
         status(phase=msg('backend.saving_and_finishing_2'), finishing=True, user_paused=False)
-        if control.started is not None:
+        if control.started:
             callback.on_training_end()
         else:
             status(phase=msg('backend.startup_cancelled'), message=msg('backend.startup_cancelled_before_any_model_was_updated'), finishing=False)
@@ -505,12 +529,16 @@ def evaluate(model, env, run_dir: Path, status, lease, episodes=10):
     control = getattr(env, 'training_control', None)
     for i in range(episodes):
         obs, _ = env.reset()
-        if control and control.started is None:
+        progress = EvaluationRound(getattr(env, 'current', None), getattr(env, 'game_setup', None))
+        status(evaluation_episode=i + 1, evaluation_episodes=episodes, evaluation_round=progress.report())
+        if control and not control.started:
             control.start()
         while True:
             lease()
             if control and control.gate(env):
                 obs = env.builder.build(env.current)
+            if progress.observe(getattr(env, 'current', None)):
+                status(evaluation_round=progress.report())
             policy_started = clock_ns()
             runner = getattr(model,'decision_runner',None)
             if runner is not None:
@@ -525,23 +553,30 @@ def evaluate(model, env, run_dir: Path, status, lease, episodes=10):
                 if runner is not None and hasattr(env,'record_decision'):env.record_decision(decision)
                 obs, reward, terminated, truncated, info = env.step(int(action))
             except SamplingInterrupted as interruption:
+                if progress.observe(getattr(env, 'current', None)):
+                    status(evaluation_round=progress.report())
                 if interruption.episode_end is not None:
                     info = interruption.episode_end
-                    rows.append({'episode':i+1, **episode_row(info,getattr(env,'total_steps',0)),
-                                 **info.get('episode_diagnostics',{})})
-                    atomic_json(run_dir/'evaluation_progress.json',evaluation_report(model,env,rows,episodes))
                     break
                 if control:
                     control.gate(env)
                 obs = env.builder.build(env.current)
                 continue
+            new_observation = progress.observe(getattr(env, 'current', None))
+            new_action_evidence = progress.record_action(info)
+            if new_observation or new_action_evidence:
+                status(evaluation_round=progress.report())
             status(phase=msg('backend.independent_model_evaluation'), evaluation_episode=i + 1, evaluation_episodes=episodes)
             if terminated or truncated:
-                rows.append({"episode": i + 1, **episode_row(info,getattr(env,'total_steps',0)),
-                             **info.get("episode_diagnostics", {})})
-                atomic_json(run_dir / 'evaluation_progress.json', evaluation_report(model, env, rows, episodes))
                 break
-    env.pause()
+        rows.append({'episode': i + 1, **episode_row(info, getattr(env, 'total_steps', 0)),
+                     **info.get('episode_diagnostics', {}), **progress.report()})
+        atomic_json(run_dir / 'evaluation_progress.json', evaluation_report(model, env, rows, episodes))
+    if hasattr(env, 'release_input'):
+        env.release_input()
+    else:
+        env.pause()
+    lease()
     report = evaluation_report(model, env, rows, episodes, complete=True)
     atomic_json(run_dir / 'evaluation_progress.json', report)
     atomic_json(run_dir / "evaluation.json", report)
@@ -550,12 +585,13 @@ def evaluate(model, env, run_dir: Path, status, lease, episodes=10):
 
 def evaluation_report(model, env, rows, requested, complete=False):
     average = lambda key: float(np.mean([r.get(key, 0) for r in rows])) if rows else None
-    report = {"episodes": list(rows), 'complete':complete,
+    report = {"episodes": list(rows), 'complete':complete, 'report_version':EVALUATION_REPORT_VERSION,
               'episodes_requested':requested, 'episodes_completed':len(rows),
               'checkpoint':{'path':getattr(model,'source_checkpoint',None),
                             'sha256':getattr(model,'source_checkpoint_sha256',None),
                             'steps':getattr(model,'source_checkpoint_steps',None)},
-              'planner_version':PLANNER_VERSION,
+              'planner_version':PLANNER_VERSION, 'observation_version':OBSERVATION_VERSION,
+              'action_timing_version':ACTION_TIMING_VERSION, 'deterministic_policy':True,
               'goal':getattr(env,'goal','survival'),
               'requested_game_setup':env.game_setup.to_dict() if getattr(env,'game_setup',None) else None,
               'bombs_used':sum(r.get('bombs_used',0) for r in rows),
@@ -566,7 +602,8 @@ def evaluation_report(model, env, rows, requested, complete=False):
               "no_hit_rate": float(np.mean([not r["died"] for r in rows])) if rows else None,
               'time_limit_completions':sum(bool(env.episode_seconds) and not r['died'] and r['survival_seconds']>=env.episode_seconds for r in rows),
               "max_seconds": env.episode_seconds,
-              "game_sha256": SHA256, "reward_version": REWARD_VERSION, "time": timestamp()}
+              "game_sha256": SHA256, "reward_version": REWARD_VERSION, "time": timestamp(),
+              **summarize_rounds(rows)}
     report.update(mean_power_gained=average('power_gained'),
                   mean_enemy_damage=average('enemy_damage'),
                   mean_boss_damage=average('boss_damage'),

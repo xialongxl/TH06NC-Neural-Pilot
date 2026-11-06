@@ -2,7 +2,10 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
+from th06ai.acceleration import search_extension
+from th06ai.navigation import NAV_FIELDS
 from th06ai.observations import action_keys
 from th06ai.planning import RollingPlanner, swept_segments
 from th06ai.planning import rectangle_sweep
@@ -65,6 +68,42 @@ def test_bullet_prefix_fallback_does_not_reopen_a_path_through_enemy_body():
     assert not result.features[1,1]  # The known body blocks fast up.
     assert result.features[:,1].any()
     assert np.isfinite(result.features).all()
+
+
+@pytest.mark.parametrize('backend', ['python', 'rust'])
+def test_warning_laser_fallback_checks_damaging_hazards_across_the_switch_window(backend):
+    if backend == 'rust' and search_extension() is None:
+        pytest.skip('optional Rust search not built')
+    settings = PlanningConfig(beam_width=1, collision_backend=backend)
+    planner = RollingPlanner(settings)
+    current = frame(bullets=[(0, 192, 303), (1, 192, 330)])
+    current.enemy_bodies = np.array([(0, 172, 320, 6, 6, 1)], np.float32)
+    current.lasers = np.array([(0, 100, 320, 0, 200, 0, 3, 0)], np.float32)
+    previous = replace(current, tick=100)
+
+    result = planner.plan(current, previous)
+    allowed = result.features[:, 1] > 0
+    assert result.diagnostics['active_threat_priority']
+    assert result.diagnostics['immediate_contact_free_roots'] == 0  # Telegraph covers the player.
+    assert result.diagnostics['route_mode'] == 'fallback'
+    assert not result.navigation[:, NAV_FIELDS.index('robust_safe')].any()
+    assert allowed[result.diagnostics['suggested_movement']]
+    assert not allowed[2]  # Fast down crosses the bullet.
+    assert not allowed[14]  # Slow up-left crosses the enemy-body gate after the short probe.
+    assert allowed[6]  # Fast up-right avoids both over the tested window.
+
+    damaging = replace(current, lasers=current.lasers.copy())
+    damaging.lasers[0, 7] = 1
+    result = RollingPlanner(settings).plan(damaging, replace(damaging, tick=100))
+    assert not result.diagnostics.get('active_threat_priority')
+    assert result.diagnostics['nominal_escape_roots'] == 0
+
+    wide_window = RollingPlanner(settings)
+    for delay in [16] * 3 + [260] * 10:
+        wide_window.switch_times.add(delay)
+    result = wide_window.plan(current, previous)
+    assert not result.diagnostics['timing_interval_complete']
+    assert not result.diagnostics.get('active_threat_priority')
 
 
 def test_switch_estimate_uses_pairs_and_forgets_old_outliers():

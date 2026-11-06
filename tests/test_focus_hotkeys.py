@@ -117,7 +117,7 @@ def test_focus_wait_excludes_its_time_from_training_budget_and_still_checks_stop
             window.focused = True
     environment.time.sleep = sleep
     env._acquire_focus()
-    assert env.training_control.paused_total >= .2
+    assert env.training_control.paused_seconds >= .2
     assert env.training_control.active_seconds == pytest.approx(0)
     window.focused = False
     env.lease = lambda: (_ for _ in ()).throw(RuntimeError('hardware stop'))

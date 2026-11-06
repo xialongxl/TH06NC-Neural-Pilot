@@ -14,7 +14,7 @@ export function inputResponse(timing?: InputLatency, locale: Locale = 'zh-CN') {
 }
 
 export const number = (value: number | undefined | null, locale: Locale = 'zh-CN') => value == null ? '—' : value.toLocaleString(locale)
-export function duration(seconds?: number) {
+export function duration(seconds?: number | null) {
   const s = Math.max(0, Math.floor(seconds || 0))
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }

@@ -5,10 +5,12 @@ import os
 import sys
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
 from th06ai.config import Config, SafetyConfig
+from th06ai.control import SCENE_WAIT_LIMIT_SECONDS, STAGE_OVERTIME_LIMIT_SECONDS
 from th06ai.supervisor import run_guard
 from test_safety import healthy
 
@@ -83,12 +85,27 @@ def test_bad_preflight_never_starts_worker(tmp_path):
     assert (pointer.read_bytes() if pointer.exists() else None) == before, "simulated faults must not replace live dashboard data"
 
 
-def test_gpu_fault_terminates_even_when_worker_reports_user_pause(tmp_path):
+@pytest.mark.parametrize('emergency_stop, expected_code', [(False, 0), (True, 90)])
+def test_finish_before_the_worker_starts_cancels_launch(tmp_path, emergency_stop, expected_code):
+    (tmp_path / 'FINISH').touch()
+    if emergency_stop:
+        (tmp_path / 'STOP').touch()
+    result = run_guard(Config(game_exe='unused'), 'train', run_dir=tmp_path,
+                       reader_factory=lambda: SimulatedGpu('healthy'),
+                       child_command=[sys.executable, '-c', "raise AssertionError('must not start')"],
+                       release_fn=lambda: None, verbose=False)
+    assert result.code == expected_code and result.child_pid is None
+
+
+@pytest.mark.parametrize('worker_state', [{'user_paused': True}, {'scene_wait_step': 0}],
+                         ids=['user_pause', 'scene_wait'])
+def test_gpu_fault_terminates_even_when_worker_is_waiting(tmp_path, worker_state):
     script = tmp_path / "paused_worker.py"
     script.write_text(
         "import json,time\nfrom pathlib import Path\n"
         f"p=Path({str(tmp_path / 'worker.json')!r})\n"
-        "while True:\n p.write_text(json.dumps({'monotonic':time.monotonic(),'user_paused':True}))\n time.sleep(.05)\n",
+        f"state={worker_state!r}\n"
+        "while True:\n p.write_text(json.dumps(dict(state,monotonic=time.monotonic())))\n time.sleep(.05)\n",
         encoding="utf-8")
     result = run_guard(Config(game_exe="unused", minutes=1), "train", run_dir=tmp_path,
                        reader_factory=lambda: SimulatedGpu("temperature"),
@@ -109,3 +126,99 @@ def test_worker_exit_displays_original_failure_even_without_heartbeat(tmp_path):
                        release_fn=lambda: None, hotkey_fn=lambda: False, verbose=False)
     assert result.code == 90
     assert error in result.reason and "详见 worker.log" not in result.reason
+
+
+def _run_guard_on_clock(tmp_path, monkeypatch, worker_state, *, duration, tick, finish_at=None):
+    from th06ai import supervisor, win32
+
+    now = [0.]
+    child_started = []
+    terminated = []
+    published = {}
+
+    def elapsed():
+        return now[0] - child_started[0]
+
+    def poll():
+        return 0 if terminated or (finish_at is not None and elapsed() >= finish_at) else None
+
+    child = SimpleNamespace(pid=1, poll=poll,
+                            wait=lambda **_: None, close=lambda: None)
+
+    def start(*_):
+        child_started.append(now[0])
+        return child
+
+    monkeypatch.setattr(supervisor, 'time', SimpleNamespace(
+        monotonic=lambda: now[0], sleep=lambda _: now.__setitem__(0, now[0] + tick)))
+    monkeypatch.setattr(win32, 'GuardLock', lambda _: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(win32, 'OwnedJob', lambda: SimpleNamespace(
+        start=start, terminate=lambda: terminated.append(True), close=lambda: None))
+    monkeypatch.setattr(supervisor, 'SharedLease', lambda **_: SimpleNamespace(
+        name='test', publish=lambda *_: None, close=lambda: None))
+    monkeypatch.setattr(supervisor, 'AsyncTelemetry', lambda _: SimpleNamespace(
+        poll=lambda _: (healthy(monotonic=now[0]), {}), next=lambda: None, close=lambda: None))
+    monkeypatch.setattr(supervisor, 'SafetyPolicy', lambda _: SimpleNamespace(check=lambda *_, **__: None))
+    monkeypatch.setattr(supervisor, 'read_json', lambda _: dict(worker_state(elapsed()), monotonic=now[0]))
+    monkeypatch.setattr(supervisor, 'atomic_json', lambda path, state: published.__setitem__(path.name, state))
+
+    result = run_guard(Config(game_exe='unused'), 'train', minutes=duration/60, run_dir=tmp_path,
+                       reader_factory=lambda: None, child_command=['test-worker'],
+                       release_fn=lambda: None, verbose=False)
+    return result, elapsed(), bool(terminated), published['result.json']
+
+
+@pytest.mark.parametrize('stage,allowance', [(None, 0), (True, 0), (5, STAGE_OVERTIME_LIMIT_SECONDS)])
+def test_guard_bounds_stage_overtime_with_its_own_clock(tmp_path, monkeypatch, stage, allowance):
+    result, elapsed, terminated, _ = _run_guard_on_clock(tmp_path, monkeypatch,
+        lambda _: {'clock_started': True, 'overtime_stage': stage, 'budget_seconds': 99999}, duration=60, tick=30)
+    assert result.code == 90 and terminated
+    assert 60 + allowance + 120 < elapsed <= 60 + allowance + 150
+
+
+def test_guard_counts_scene_waits_in_a_training_run_past_the_old_deadline(tmp_path, monkeypatch):
+    def scene_wait(elapsed):
+        for step, start in enumerate(range(60, 461, 100), start=1):
+            if start <= elapsed < start + 30:
+                return {'clock_started': True, 'scene_wait_step': step}
+        return {'clock_started': True}
+
+    result, elapsed, terminated, status = _run_guard_on_clock(tmp_path, monkeypatch, scene_wait,
+                                                               duration=600, tick=1, finish_at=750)
+    assert result.code == 0 and elapsed == 750 and not terminated
+    assert status['guarded_scene_wait_seconds'] == 5 * 30
+
+
+def test_guard_caps_stuck_scene_wait_and_ignores_replayed_steps(tmp_path, monkeypatch):
+    def scene_wait(elapsed):
+        return {'clock_started': True, 'scene_wait_step': 7 if elapsed < 100 else 6, 'paused_seconds': 99999}
+
+    result, elapsed, terminated, status = _run_guard_on_clock(tmp_path, monkeypatch, scene_wait,
+                                                               duration=60, tick=10)
+    assert result.code == 90 and terminated
+    assert status['guarded_scene_wait_seconds'] == SCENE_WAIT_LIMIT_SECONDS
+    assert 180 + SCENE_WAIT_LIMIT_SECONDS < elapsed <= 190 + SCENE_WAIT_LIMIT_SECONDS
+
+
+@pytest.mark.parametrize('finish_at, expected_active', [(190, 60), (None, 181)])
+def test_guard_publishes_one_clock_after_startup_and_pause(tmp_path, monkeypatch, finish_at, expected_active):
+    def worker(elapsed):
+        paused_in_scene = 120 <= elapsed < 140
+        return {'clock_started': elapsed >= 90, 'clock_paused': 100 <= elapsed < 125,
+                'user_paused': paused_in_scene, 'scene_wait_step': 3 if paused_in_scene else None,
+                'training_seconds': 99999, 'paused_seconds': 99999, 'budget_seconds': 99999}
+
+    result, elapsed, terminated, status = _run_guard_on_clock(tmp_path, monkeypatch, worker,
+                                                               duration=60, tick=1, finish_at=finish_at)
+    assert result.code == (0 if finish_at else 90) and terminated == (finish_at is None)
+    assert elapsed == 90 + 40 + expected_active
+    assert status['session_time'] == {'training_seconds': expected_active, 'paused_seconds': 40, 'budget_seconds': 60}
+    assert {key: status['worker'][key] for key in status['session_time']} == status['session_time']
+    assert status['guarded_scene_wait_seconds'] == 0
+
+
+def test_late_readiness_cannot_extend_startup_deadline(tmp_path, monkeypatch):
+    result, elapsed, terminated, status = _run_guard_on_clock(tmp_path, monkeypatch,
+        lambda t: {'clock_started': t >= 190, 'overtime_stage': 5}, duration=60, tick=10)
+    assert result.code == 90 and elapsed == 190 and terminated
+    assert status['session_time']['training_seconds'] is None

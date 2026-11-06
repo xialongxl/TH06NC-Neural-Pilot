@@ -79,3 +79,19 @@ def test_concurrent_dashboard_reads_do_not_break_atomic_status_updates(tmp_path)
         thread.join(timeout=1)
     assert not errors
     assert read_json(path) == {"sequence": 299}
+
+
+def test_worker_heartbeat_reads_the_watchdog_session_clock(tmp_path):
+    from th06ai.worker import Heartbeat
+
+    timing = {'training_seconds': 60.001, 'paused_seconds': 4.0, 'budget_seconds': 60}
+    atomic_json(tmp_path / 'status.json', {'session_time': timing, 'worker': {'training_seconds': 99999}})
+    heartbeat = Heartbeat(tmp_path, track_session=True)
+    try:
+        deadline = time.monotonic() + 2
+        while not heartbeat.session_time() and not heartbeat.error and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert heartbeat.session_time() == timing
+        assert heartbeat.error is None
+    finally:
+        heartbeat.close()

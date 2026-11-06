@@ -99,6 +99,7 @@ def action_row(info, steps):
         'planner_prefix_collision_tick': info.get('planning', {}).get('prefix_collision_tick'),
         'planner_timing_contact_free_roots': info.get('planning', {}).get('timing_contact_free_roots'),
         'planner_recovery_ranking': info.get('planning', {}).get('recovery_ranking'),
+        'planner_active_threat_priority': info.get('planning', {}).get('active_threat_priority'),
         'decision_enemy_bodies': info.get('decision_enemy_bodies', []),
         'next_enemy_bodies': info.get('next_enemy_bodies', []),
         'item_potential': info.get('behavior', {}).get('item_potential'),

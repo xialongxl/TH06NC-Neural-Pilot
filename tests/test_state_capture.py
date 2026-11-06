@@ -85,6 +85,22 @@ def test_visible_bullets_are_returned_even_when_capture_crosses_a_tick():
     assert buffers == (id(reader._world), id(reader._actors))
 
 
+def test_sparse_bullet_slots_keep_state_and_unknown_sizes_aligned():
+    memory = UpdatingGameMemory(advancing=False)
+    pool = np.ndarray((native.CAPACITY,), native.BULLET_DTYPE, buffer=memory.world,
+                      offset=native.BULLET_MANAGER + 8 - native.WORLD_START)
+    pool[3] = (384, 448, 4, 8, 4)  # Visible spawning slot on the playfield boundary.
+    pool[11] = (385, 448, 1, 8, 4)
+    pool[21] = (np.inf, 200, 1, 8, 4)
+    pool[53] = (0, 0, 5, 8, 4)
+    pool[630] = (0, 0, 1, 0, 4)
+    frame = reader_for(memory).read()
+    assert (frame.x, frame.y) == (192, 384)
+    np.testing.assert_array_equal(frame.bullets, [[3, 384, 448], [630, 0, 0]])
+    np.testing.assert_array_equal(frame.bullet_states, [4, 1])
+    np.testing.assert_array_equal(frame.bullet_sizes, [[8, 4], [np.nan, np.nan]])
+
+
 def test_paused_snapshot_and_live_snapshot_use_the_same_decoder():
     memory = UpdatingGameMemory(advancing=False)
     memory.put(native.PAUSED, "B", 1)

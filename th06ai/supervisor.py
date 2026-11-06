@@ -12,9 +12,54 @@ from pathlib import Path
 from typing import Callable
 
 from .config import Config, ROOT
+from .control import STAGE_OVERTIME_LIMIT_SECONDS, SessionStopwatch
 from .files import atomic_json, new_run, read_json, timestamp
 from .gpu import AsyncTelemetry, NvmlReader, SafetyPolicy, SafetyTrip
 from .lease import SharedLease
+
+
+GAME_MODES = ('train', 'play', 'evaluate')
+FINISH_RESERVE_SECONDS = 120
+
+
+class GuardedSessionClock:
+    """Own the startup bound and the subsequent active-time deadlines."""
+
+    def __init__(self, now, budget_seconds, mode):
+        self.budget_seconds = budget_seconds
+        self.mode = mode
+        self.ready = False
+        self.overtime_granted = False
+        self.stopwatch = SessionStopwatch(now)
+
+    def observe(self, now, worker):
+        self.stopwatch.advance(now)
+        if not worker or self.mode not in GAME_MODES:
+            return
+        if not self.ready and worker.get('clock_started') is True and not self.expired:
+            # The startup timeout is independent of the planned game session.
+            self.stopwatch = SessionStopwatch(now)
+            self.ready = True
+        paused = worker.get('clock_paused') is True or worker.get('user_paused') is True
+        self.stopwatch.set_wait(now, paused=paused, scene_step=worker.get('scene_wait_step') if self.ready else None)
+        stage = worker.get('overtime_stage')
+        if (self.mode == 'train' and self.ready and self.target_reached and not self.expired
+                and type(stage) is int and 1 <= stage <= 7):
+            self.overtime_granted = True
+
+    @property
+    def target_reached(self):
+        return self.ready and self.stopwatch.active_seconds >= self.budget_seconds
+
+    @property
+    def expired(self):
+        allowance = STAGE_OVERTIME_LIMIT_SECONDS if self.overtime_granted else 0
+        return self.stopwatch.active_seconds > self.budget_seconds + allowance + FINISH_RESERVE_SECONDS
+
+    def snapshot(self):
+        return {'training_seconds': self.stopwatch.active_seconds if self.ready else None,
+                'paused_seconds': self.stopwatch.paused_seconds if self.ready else None,
+                'budget_seconds': self.budget_seconds}
 
 
 @dataclass
@@ -61,8 +106,6 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     hotkey_fn = hotkey_fn or ((lambda: bool(get_async_key(0x77) & 0x8000)) if real_events else lambda: False)
     pause_hotkey_fn = pause_hotkey_fn or (lambda: False)  # Native listener is the sole F7 owner.
     pause_key_down = False
-    guarded_pause_seconds = 0.0
-    last_guard_tick = time.monotonic()
     run_dir = run_dir or new_run(ROOT, mode)
     run_dir.mkdir(parents=True, exist_ok=True)
     policy = SafetyPolicy(config.safety)
@@ -84,6 +127,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     publish_public_pointer = reader_factory is None and child_command is None and mode != 'profile'
     started = time.monotonic()
     child_started = None
+    session_clock = None
     duration = 60 * (config.minutes if minutes is None else minutes)
     if not 0 < duration <= 3600:
         raise ValueError(msg('backend.monitoring_or_training_must_run_for_more'))
@@ -104,7 +148,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
             release_fn()
 
     def toggle_pause():
-        if mode not in ('train', 'play', 'evaluate') or stop_requested.is_set():
+        if mode not in GAME_MODES or stop_requested.is_set():
             return
         from .control import set_paused
         paused = (run_dir / 'PAUSE').exists() or worker.get('focus_pending') is True
@@ -115,18 +159,27 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     def stopping():
         return stop_requested.is_set() or bool(hotkeys and hotkeys.stop_requested.is_set())
 
+    def timing_status(heartbeat):
+        snapshot = session_clock.snapshot() if session_clock and mode in GAME_MODES else None
+        return {'worker': {**heartbeat, **snapshot} if snapshot is not None and mode == 'train' else heartbeat,
+                'session_time': snapshot,
+                'guarded_scene_wait_seconds': round(session_clock.stopwatch.scene_wait_seconds, 3) if session_clock else 0.0}
+
     try:
         if real_events or hotkeys_factory is not None:
             from .hotkeys import GlobalHotkeys
             factory = hotkeys_factory or GlobalHotkeys
-            hotkeys = factory(emergency_stop, toggle_pause, enable_pause=mode in ('train', 'play', 'evaluate'))
+            hotkeys = factory(emergency_stop, toggle_pause, enable_pause=mode in GAME_MODES)
         with (run_dir / "gpu.jsonl").open("a", encoding="utf-8", buffering=1) as gpu_log:
             while True:
                 now = time.monotonic()
                 if stopping() or (run_dir / "STOP").exists() or hotkey_fn():
                     raise SafetyTrip(msg('backend.emergency_stop_requested_by_the_user_button'))
+                if child is None and mode in GAME_MODES and (run_dir / 'FINISH').exists():
+                    reason = msg('backend.startup_cancelled')
+                    break
                 pause_key = pause_hotkey_fn()
-                if mode in ('train', 'play', 'evaluate') and pause_key and not pause_key_down:
+                if mode in GAME_MODES and pause_key and not pause_key_down:
                     toggle_pause()
                 pause_key_down = pause_key
                 update = telemetry.poll(config.safety.telemetry_timeout_seconds)
@@ -168,11 +221,16 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                         child_pid = child.pid
                         # Worker cannot touch game/CUDA until the shared lease is live.
                         child_started = time.monotonic()
+                        session_clock = GuardedSessionClock(child_started, duration, mode)
                         state = "running"
                     elif healthy >= 3 and mode == "monitor":
                         state = "monitoring"
                     worker = read_json(heartbeat_file) if child else {}
+                    clock_changed = False
                     if child is not None:
+                        old_clock_state = session_clock.ready, session_clock.target_reached
+                        session_clock.observe(time.monotonic(), worker)
+                        clock_changed = old_clock_state != (session_clock.ready, session_clock.target_reached)
                         exit_code = child.poll()
                         if exit_code is not None:
                             if stopping() or (run_dir / 'STOP').exists():
@@ -193,20 +251,18 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                             raise SafetyTrip(msg('backend.the_ai_worker_did_not_start_its'))
                         if worker.get("error"):
                             raise SafetyTrip(msg('backend.ai_error_0', worker['error']))
-                        # Count pause time ourselves; never trust a worker-provided
-                        # number to extend the independent execution deadline.
-                        if mode in ('train', 'play', 'evaluate') and worker.get("user_paused") is True:
-                            guarded_pause_seconds += max(0, now - last_guard_tick)
+                        if session_clock.expired:
+                            raise SafetyTrip(msg('backend.the_ai_exceeded_its_time_limit_and'))
                         state = "paused" if worker.get("user_paused") else "finishing" if worker.get("finishing") else "running"
-                    status = {"time": timestamp(), "monotonic": time.monotonic(), "state": state,
-                              "reason": msg('backend.gpu_monitoring_healthy'), "mode": mode, "pid": os.getpid(),
-                              "child_pid": child_pid, "gpu": last_sample.to_dict(),
-                              "sensors": metadata, "worker": worker,
-                              "hotkeys": hotkeys.snapshot() if hotkeys else {},
-                              "elapsed_seconds": time.monotonic() - started,
-                              "limits": {"temperature_c": config.safety.temperature_limit_c,
-                                         "vram_fraction": config.safety.vram_fraction_limit}}
-                    if update or now - last_publish >= config.safety.poll_seconds:
+                    if update or clock_changed or now - last_publish >= config.safety.poll_seconds:
+                        status = {"time": timestamp(), "monotonic": time.monotonic(), "state": state,
+                                  "reason": msg('backend.gpu_monitoring_healthy'), "mode": mode, "pid": os.getpid(),
+                                  "child_pid": child_pid, "gpu": last_sample.to_dict(),
+                                  "sensors": metadata, **timing_status(worker),
+                                  "hotkeys": hotkeys.snapshot() if hotkeys else {},
+                                  "elapsed_seconds": time.monotonic() - started,
+                                  "limits": {"temperature_c": config.safety.temperature_limit_c,
+                                             "vram_fraction": config.safety.vram_fraction_limit}}
                         atomic_json(current_file, status)
                         last_publish = now
                     if not pointer_published:
@@ -224,10 +280,6 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                 if mode == "monitor" and now - started >= duration:
                     reason = msg('backend.read_only_monitoring_time_limit_reached')
                     break
-                # Worker controls the training budget; this hard cap also covers startup hangs.
-                if child_started and now - child_started - guarded_pause_seconds > duration + 120:
-                    raise SafetyTrip(msg('backend.the_ai_exceeded_its_time_limit_and'))
-                last_guard_tick = now
                 time.sleep(0.01)
     except Exception as exc:
         code, reason = 90, str(exc)
@@ -263,7 +315,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
         final = {"time": timestamp(), "monotonic": time.monotonic(), "state": "stopped" if code else "complete",
                  "mode": mode, "reason": reason, "code": code, "pid": os.getpid(),
                  "child_pid": child_pid, "gpu": last_sample.to_dict() if last_sample else None,
-                 "sensors": metadata, "worker": read_json(heartbeat_file)}
+                 "sensors": metadata, **timing_status(read_json(heartbeat_file))}
         final['hotkeys'] = hotkeys.snapshot() if hotkeys else {}
         # Diagnostic writes must never prevent worker termination/input release.
         for target in (current_file, run_dir / "result.json"):
