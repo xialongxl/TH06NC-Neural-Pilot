@@ -164,6 +164,8 @@ decision = runner.predict(observation, deterministic=False, lease=...)
 
 worker 心跳与 GPU 数据超时是不同阈值；暂停不停止保护。F8 的处理不依赖 UI、PPO 回调或主采样循环。硬件紧急终止优先于写模型，保留之前的成功检查点。
 
+worker 成功保存并收尾后，会在最后一条心跳中写入 `exit_ready`。看门狗收到这条新鲜心跳后冻结会话计时，进入最长 5 秒的进程退出阶段。进程以代码 0 退出才记录为完成。等待期间 GPU 检查和 F8 继续有效。
+
 `GuardedSessionClock` 是实机会话计时的唯一来源。初始化单独受启动截止约束。看门狗收到 `clock_started` 后开始计会话时间，根据 `clock_paused` 扣除人工等待，并根据 `scene_wait_step` 扣除对话、脚本和转场等待。同一采样步的自动等待合计最多扣除 60 秒。看门狗通过 `status.json` 发布快照，面板显示与 worker 的到期判断取自同一来源。worker 在已有心跳线程中读取，控制链使用缓存。
 
 训练的计划时长、单关加时和执行硬截止基于同一份有效时长。达到计划时间后，训练 worker 报告有效 `overtime_stage` 可获得一次固定的加时额度。执行硬截止额外预留 120 秒给正常收尾；GPU 保护和 F8 仍可随时终止。

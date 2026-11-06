@@ -95,3 +95,15 @@ def test_worker_heartbeat_reads_the_watchdog_session_clock(tmp_path):
         assert heartbeat.error is None
     finally:
         heartbeat.close()
+
+
+@pytest.mark.parametrize('completed', [False, True])
+def test_only_successful_worker_cleanup_publishes_an_exit_handoff(tmp_path, completed):
+    from th06ai.worker import Heartbeat
+
+    heartbeat = Heartbeat(tmp_path)
+    heartbeat.update(phase='complete')
+    heartbeat.close(exit_ready=completed)
+    final = read_json(tmp_path / 'worker.json')
+    assert final['phase'] == 'complete'
+    assert final.get('exit_ready', False) is completed

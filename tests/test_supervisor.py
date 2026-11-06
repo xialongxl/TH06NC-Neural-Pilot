@@ -11,7 +11,7 @@ import pytest
 
 from th06ai.config import Config, SafetyConfig
 from th06ai.control import SCENE_WAIT_LIMIT_SECONDS, STAGE_OVERTIME_LIMIT_SECONDS
-from th06ai.supervisor import run_guard
+from th06ai.supervisor import WORKER_EXIT_GRACE_SECONDS, run_guard
 from test_safety import healthy
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows Job Object integration")
@@ -97,8 +97,8 @@ def test_finish_before_the_worker_starts_cancels_launch(tmp_path, emergency_stop
     assert result.code == expected_code and result.child_pid is None
 
 
-@pytest.mark.parametrize('worker_state', [{'user_paused': True}, {'scene_wait_step': 0}],
-                         ids=['user_pause', 'scene_wait'])
+@pytest.mark.parametrize('worker_state', [{'user_paused': True}, {'scene_wait_step': 0}, {'exit_ready': True}],
+                         ids=['user_pause', 'scene_wait', 'worker_exit'])
 def test_gpu_fault_terminates_even_when_worker_is_waiting(tmp_path, worker_state):
     script = tmp_path / "paused_worker.py"
     script.write_text(
@@ -159,7 +159,7 @@ def _run_guard_on_clock(tmp_path, monkeypatch, worker_state, *, duration, tick, 
     monkeypatch.setattr(supervisor, 'AsyncTelemetry', lambda _: SimpleNamespace(
         poll=lambda _: (healthy(monotonic=now[0]), {}), next=lambda: None, close=lambda: None))
     monkeypatch.setattr(supervisor, 'SafetyPolicy', lambda _: SimpleNamespace(check=lambda *_, **__: None))
-    monkeypatch.setattr(supervisor, 'read_json', lambda _: dict(worker_state(elapsed()), monotonic=now[0]))
+    monkeypatch.setattr(supervisor, 'read_json', lambda _: {'monotonic': now[0], **worker_state(elapsed())})
     monkeypatch.setattr(supervisor, 'atomic_json', lambda path, state: published.__setitem__(path.name, state))
 
     result = run_guard(Config(game_exe='unused'), 'train', minutes=duration/60, run_dir=tmp_path,
@@ -222,3 +222,38 @@ def test_late_readiness_cannot_extend_startup_deadline(tmp_path, monkeypatch):
         lambda t: {'clock_started': t >= 190, 'overtime_stage': 5}, duration=60, tick=10)
     assert result.code == 90 and elapsed == 190 and terminated
     assert status['session_time']['training_seconds'] is None
+
+
+@pytest.mark.parametrize('exit_ready', [False, True])
+def test_only_final_handoff_allows_the_worker_to_exit_after_heartbeat_stops(tmp_path, monkeypatch, exit_ready):
+    from th06ai import supervisor
+    from th06ai.i18n import msg
+
+    final_beat = []
+
+    def worker_state(elapsed):
+        if elapsed < 1:
+            return {'clock_started': True}
+        if not final_beat:
+            final_beat.append(supervisor.time.monotonic())
+        return {'clock_started': True, 'finishing': True, 'phase': msg('backend.complete_2'),
+                'exit_ready': exit_ready, 'monotonic': final_beat[0]}
+
+    result, elapsed, terminated, status = _run_guard_on_clock(tmp_path, monkeypatch, worker_state,
+                                                               duration=60, tick=.25, finish_at=4)
+    if exit_ready:
+        assert result.code == 0 and elapsed == 4 and not terminated
+        assert status['session_time']['training_seconds'] == 1
+    else:
+        assert result.code == 90 and elapsed == 3.25 and terminated
+        assert result.reason == msg('backend.the_ai_worker_heartbeat_is_stale_or')
+
+
+def test_exit_deadline_cannot_be_extended_by_repeated_handoffs(tmp_path, monkeypatch):
+    from th06ai.i18n import msg
+
+    result, elapsed, terminated, _ = _run_guard_on_clock(tmp_path, monkeypatch,
+        lambda elapsed: {'clock_started': True, 'exit_ready': elapsed >= 1}, duration=60, tick=.25)
+    assert result.code == 90 and terminated
+    assert elapsed == 1 + WORKER_EXIT_GRACE_SECONDS + .25
+    assert result.reason == msg('backend.the_ai_worker_did_not_exit_after_cleanup')

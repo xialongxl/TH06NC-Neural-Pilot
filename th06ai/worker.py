@@ -109,13 +109,15 @@ class Heartbeat:
         self.lease_identity = identity
         self.last_lease_check = now
 
-    def close(self):
+    def close(self, *, exit_ready=False):
         self.done.set()
         self._wake.set()
         self.thread.join(timeout=.5)
-        if not self.error:
+        if not self.error and not self.thread.is_alive():
             with self.lock:
                 snapshot = {**self.data, "monotonic": time.monotonic(), "time": timestamp()}
+            if exit_ready:
+                snapshot['exit_ready'] = True
             atomic_json(self.run_dir / "worker.json", snapshot)
 
 
@@ -224,6 +226,7 @@ def main():
     game_session = args.mode in ('train', 'play', 'evaluate')
     heartbeat = Heartbeat(run_dir, lease, config.safety, track_session=game_session)
     env = None
+    completed = False
     try:
         # Wait for the supervisor to attach the kill-on-close Job Object.
         deadline = time.monotonic() + 3
@@ -236,6 +239,7 @@ def main():
         if args.mode == "check":
             from .backend import check_cuda
             check_cuda(heartbeat.lease, heartbeat.update)
+            completed = True
             return 0
         import torch
         torch.set_num_threads(1)
@@ -249,6 +253,7 @@ def main():
             else:
                 from .profile_inference import profile_inference
                 profile_inference(config,run_dir,args.model,heartbeat.update,heartbeat.lease)
+            completed = True
             return 0
         from .native import SHA256
         if args.mode != "calibrate":
@@ -308,9 +313,11 @@ def main():
                         if died or timeout:
                             obs, _ = env.reset()
         heartbeat.update(phase=msg('backend.complete_2'), message=msg('backend.run_complete_game_keys_released'))
+        completed = True
         return 0
     except FinishTraining:
         heartbeat.update(phase=msg('backend.complete_2'), message=msg('backend.session_ended_releasing_game_keys'))
+        completed = True
         return 0
     except BaseException as exc:
         heartbeat.update(error=str(exc), phase=msg('backend.stopped_2'), message=str(exc),
@@ -330,8 +337,13 @@ def main():
                 from .win32 import release_all
                 release_all()
                 heartbeat.update(cleanup_error=str(error))
-        heartbeat.close()
-        lease.close()
+        try:
+            lease.close()
+        except BaseException:
+            heartbeat.close()
+            raise
+        # Only the final record after saving and cleanup can start the exit deadline.
+        heartbeat.close(exit_ready=completed)
 
 
 if __name__ == "__main__":

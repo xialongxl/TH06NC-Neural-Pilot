@@ -3625,7 +3625,7 @@
     },
     {
       "path": "th06ai/supervisor.py",
-      "sha256": "8bbf71f423025534c0f16f6b1a9ed424ab6e38ad2b02a53ec66da591249cd7e4",
+      "sha256": "ca42a122f46495e91b25db59630f4dbf0f079d72666ee43d1693ac6dd2280d38",
       "summary": "",
       "imports": [
         ".config",
@@ -3653,32 +3653,32 @@
         {
           "name": "GuardedSessionClock",
           "kind": "class",
-          "line": 25,
+          "line": 26,
           "bases": [],
           "methods": [
             {
               "name": "__init__",
-              "line": 28,
+              "line": 29,
               "signature": "self, now, budget_seconds, mode"
             },
             {
               "name": "observe",
-              "line": 35,
+              "line": 36,
               "signature": "self, now, worker"
             },
             {
               "name": "target_reached",
-              "line": 51,
+              "line": 52,
               "signature": "self"
             },
             {
               "name": "expired",
-              "line": 55,
+              "line": 56,
               "signature": "self"
             },
             {
               "name": "snapshot",
-              "line": 59,
+              "line": 60,
               "signature": "self"
             }
           ]
@@ -3686,14 +3686,14 @@
         {
           "name": "GuardResult",
           "kind": "class",
-          "line": 66,
+          "line": 67,
           "bases": [],
           "methods": []
         },
         {
           "name": "run_guard",
           "kind": "function",
-          "line": 73,
+          "line": 74,
           "signature": "config: Config, mode: str, minutes: float | None=None, model: str | None=None, *, run_dir: Path | None=None, goal: str | None=None, game_setup=None, profile_kind: str | None=None, profile_wait_combat: bool=False, reader_factory: Callable | None=None, child_command: list[str] | None=None, release_fn: Callable | None=None, hotkey_fn: Callable | None=None, pause_hotkey_fn: Callable | None=None, hotkeys_factory: Callable | None=None, verbose: bool=True"
         }
       ]
@@ -4163,7 +4163,7 @@
     },
     {
       "path": "th06ai/worker.py",
-      "sha256": "fa23e3bea07cf78ca689e2cca3859557025c03052c54628c89d023dfa109b1a7",
+      "sha256": "9af8b31874b768967b8c0e7387a1f8cbf5b067d0663a70ca4c9a037914a06765",
       "summary": "",
       "imports": [
         ".backend",
@@ -4235,26 +4235,26 @@
             {
               "name": "close",
               "line": 112,
-              "signature": "self"
+              "signature": "self, *, exit_ready=False"
             }
           ]
         },
         {
           "name": "measure_movement",
           "kind": "function",
-          "line": 122,
+          "line": 124,
           "signature": "env, focused=False"
         },
         {
           "name": "calibrate",
           "kind": "function",
-          "line": 152,
+          "line": 154,
           "signature": "env, run_dir: Path, heartbeat: Heartbeat"
         },
         {
           "name": "main",
           "kind": "function",
-          "line": 203,
+          "line": 205,
           "signature": ""
         }
       ]

@@ -176,6 +176,8 @@ models/
 
 `worker.json` 通过 `clock_started` 报告可起算，通过 `clock_paused` 报告人工等待。`scene_wait_step` 是自动等待开始前的累计采样步，退出后为 `null`。这些字段只描述状态。
 
+`worker.json` 的 `exit_ready: true` 由 worker 在成功完成工作、释放输入并关闭读取与诊断资源后随最后一次心跳写入。看门狗根据首次收到的有效记录设定退出期限，最终结果以实际进程退出码或独立保护故障为准。
+
 `status.json` 和 `result.json` 的 `session_time` 包含 `training_seconds`、`paused_seconds`、`budget_seconds`，均由看门狗发布。会话尚未开始计时时，前两项为 `null`。`paused_seconds` 包含人工等待与实际扣除的自动等待，后者另见 `guarded_scene_wait_seconds`。训练会话的 `worker` 子对象投影这三项供既有控制台读取。`training_summary.json` 记录 worker 写摘要时已读取的最近快照，`result.json` 则记录看门狗最后观察到的有效时长。
 
 训练 action/episode CSV 在暂停边界批量写入；急停可能使最近未刷新的行丢失。不能把 CSV 最后一行当作进程真正执行的最后一步，也不能把未完成 rollout 叫作已更新模型。

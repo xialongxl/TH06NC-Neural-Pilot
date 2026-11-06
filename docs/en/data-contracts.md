@@ -105,6 +105,8 @@ Observation v1–v8 migration keeps compatible weights, optimizer state, and ori
 
 In `worker.json`, `clock_started` signals readiness and `clock_paused` indicates a manual wait. `scene_wait_step` identifies the accepted sample count at the start of an automatic wait. It is `null` after the wait ends. These fields report state.
 
+The worker sets `exit_ready: true` in its final heartbeat after successful work and cleanup. The first fresh record starts a bounded exit wait. The watchdog determines the final result from the actual process exit code or a protection fault.
+
 The watchdog publishes `training_seconds`, `paused_seconds`, and `budget_seconds` in the `session_time` field of `status.json` and `result.json`. The first two values are `null` until session timing starts. `paused_seconds` includes manual waits and credited automatic waits. `guarded_scene_wait_seconds` reports the automatic portion separately. For training sessions, the watchdog projects the three clock fields into `worker` for the existing console. `training_summary.json` captures the most recent snapshot read by the worker at save time. `result.json` records the watchdog's final observation.
 
 The last CSV row can precede the actual last action after an emergency stop. A full PPO NPZ stores `obs_<key>` as steps × env × observation shape and retains the sampled action, value, and log probability. `metadata.gae_ready=false` identifies a rollout whose final advantages and returns were unavailable. Summary traces omit the observation arrays.

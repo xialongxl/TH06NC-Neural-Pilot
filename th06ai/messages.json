@@ -388,6 +388,7 @@
   "backend.the_ai_exceeded_its_time_limit_and": ["AI 运行超过限定时间，强制停止", "The AI exceeded its time limit and was stopped"],
   "backend.the_ai_process_exited_with_code_0": ["AI 进程异常退出（代码 {0}），详见 worker.log", "The AI process exited with code {0}. See worker.log"],
   "backend.the_ai_session_has_ended_and_the": ["AI 会话已结束，后端已关闭。", "The AI session has ended and the backend has shut down."],
+  "backend.the_ai_worker_did_not_exit_after_cleanup": ["AI 已完成收尾，但进程未在退出期限内结束，已终止", "The AI finished cleanup, but the process was terminated after missing its exit deadline"],
   "backend.the_ai_worker_did_not_start_its": ["AI 进程未启动心跳", "The AI worker did not start its heartbeat"],
   "backend.the_ai_worker_heartbeat_is_stale_or": ["AI 进程心跳超时或异常", "The AI worker heartbeat is stale or invalid"],
   "backend.the_backend_failed_to_start_see_0": ["后端启动失败，请查看 {0}", "The backend failed to start. See {0}"],

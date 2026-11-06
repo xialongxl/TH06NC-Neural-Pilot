@@ -52,6 +52,8 @@ At normal training completion, the worker releases keys and checks the watchdog 
 
 `SafetyPolicy.check()` checks freshness, identity, finite telemetry, temperature, VRAM, power, throttling, fans, and available error counters. An unavailable optional sensor and a supported sensor failing mid-session have different meanings. `SharedLease.publish()` is owner-only. The last complete record can cover a busy read only with its original timestamp. Worker heartbeat and telemetry expiry use separate thresholds. F8 and hardware faults can stop the Job without waiting for PPO or model I/O.
 
+After successful work and cleanup, the worker writes `exit_ready` in its final heartbeat. The watchdog freezes session timing when it receives that fresh record and gives the process up to five seconds to exit. It records completion when the process exits with code 0. GPU checks and F8 continue during this interval.
+
 `GuardedSessionClock` owns live session time. Startup has its own deadline. The watchdog starts session accounting when it observes `clock_started`. It excludes manual waits reported through `clock_paused` and up to 60 seconds of automatic waiting per accepted sample reported through `scene_wait_step`. It publishes the snapshot in `status.json`. The console displays it, and the worker reads it on the heartbeat thread for deadline checks on the control path.
 
 The training target, stage overtime, and hard execution deadline use the same active duration. At the target, a valid `overtime_stage` grants one fixed allowance. The hard deadline includes 120 seconds for cooperative shutdown and saving. GPU protection and F8 remain effective throughout.

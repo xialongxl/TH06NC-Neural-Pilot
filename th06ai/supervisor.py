@@ -20,6 +20,7 @@ from .lease import SharedLease
 
 GAME_MODES = ('train', 'play', 'evaluate')
 FINISH_RESERVE_SECONDS = 120
+WORKER_EXIT_GRACE_SECONDS = 5.0
 
 
 class GuardedSessionClock:
@@ -128,6 +129,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
     started = time.monotonic()
     child_started = None
     session_clock = None
+    worker_exit_deadline = None
     duration = 60 * (config.minutes if minutes is None else minutes)
     if not 0 < duration <= 3600:
         raise ValueError(msg('backend.monitoring_or_training_must_run_for_more'))
@@ -228,9 +230,10 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                     worker = read_json(heartbeat_file) if child else {}
                     clock_changed = False
                     if child is not None:
-                        old_clock_state = session_clock.ready, session_clock.target_reached
-                        session_clock.observe(time.monotonic(), worker)
-                        clock_changed = old_clock_state != (session_clock.ready, session_clock.target_reached)
+                        if worker_exit_deadline is None:
+                            old_clock_state = session_clock.ready, session_clock.target_reached
+                            session_clock.observe(time.monotonic(), worker)
+                            clock_changed = old_clock_state != (session_clock.ready, session_clock.target_reached)
                         exit_code = child.poll()
                         if exit_code is not None:
                             if stopping() or (run_dir / 'STOP').exists():
@@ -244,16 +247,25 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                                 raise SafetyTrip(msg('backend.the_ai_process_exited_with_code_0', code))
                             reason = msg('backend.ai_run_complete')
                             break
-                        beat = worker.get("monotonic", child_started)
-                        if not isinstance(beat, (int, float)) or not 0 <= time.monotonic() - beat <= config.safety.worker_heartbeat_seconds:
-                            raise SafetyTrip(msg('backend.the_ai_worker_heartbeat_is_stale_or'))
-                        if time.monotonic() - child_started > config.safety.worker_heartbeat_seconds and not worker:
-                            raise SafetyTrip(msg('backend.the_ai_worker_did_not_start_its'))
                         if worker.get("error"):
                             raise SafetyTrip(msg('backend.ai_error_0', worker['error']))
+                        heartbeat_now = time.monotonic()
+                        if worker_exit_deadline is None:
+                            beat = worker.get("monotonic", child_started)
+                            if not isinstance(beat, (int, float)) or not 0 <= heartbeat_now - beat <= config.safety.worker_heartbeat_seconds:
+                                raise SafetyTrip(msg('backend.the_ai_worker_heartbeat_is_stale_or'))
+                            if heartbeat_now - child_started > config.safety.worker_heartbeat_seconds and not worker:
+                                raise SafetyTrip(msg('backend.the_ai_worker_did_not_start_its'))
+                            if worker.get('exit_ready') is True and 'monotonic' in worker:
+                                worker_exit_deadline = beat + WORKER_EXIT_GRACE_SECONDS
+                                clock_changed = True
+                        elif heartbeat_now > worker_exit_deadline:
+                            raise SafetyTrip(msg('backend.the_ai_worker_did_not_exit_after_cleanup'))
                         if session_clock.expired:
                             raise SafetyTrip(msg('backend.the_ai_exceeded_its_time_limit_and'))
                         state = "paused" if worker.get("user_paused") else "finishing" if worker.get("finishing") else "running"
+                        if worker_exit_deadline is not None:
+                            state = 'finishing'
                     if update or clock_changed or now - last_publish >= config.safety.poll_seconds:
                         status = {"time": timestamp(), "monotonic": time.monotonic(), "state": state,
                                   "reason": msg('backend.gpu_monitoring_healthy'), "mode": mode, "pid": os.getpid(),
@@ -270,7 +282,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
                             atomic_json(ROOT / "runs" / "current.json", {"run_dir": str(run_dir)})
                         pointer_published = True
                     # A worker may only act while this independent lease is fresh.
-                    if child is not None and update and not stopping():
+                    if child is not None and update and worker_exit_deadline is None and not stopping():
                         lease.publish(last_sample.monotonic, last_sample.uuid)
                     if verbose and now - last_console >= 1:
                         s = last_sample
