@@ -12,9 +12,10 @@ The code defines exact dtypes, parsing, and serialization. Review readers, write
 | Observation layout | 9 | `observations.py:OBSERVATION_VERSION` |
 | Reward semantics | 9 | `rewards.py:REWARD_VERSION` |
 | Policy and bomb head | 2 | `policy_spec.py:POLICY_VERSION` |
-| Planning | 8 | `planner_spec.py:PLANNER_VERSION` |
+| Planning | 9 | `planner_spec.py:PLANNER_VERSION` |
 | Action timing | 3 | `observations.py:ACTION_TIMING_VERSION` |
 | Input timing diagnostics | 3 | `input_timing.py:InputTiming.begin` |
+| Control-thread sample payload | 1 | `thread_profile.py:ThreadProfile.action` |
 | Native collision, input, and capture ABI | 3 | `native/src/lib.rs:API_VERSION` |
 | Standalone search ABI | 1 | `native/src/lib.rs:SEARCH_API_VERSION` |
 | Display protocol | 2, with legacy protocol 1 | `console_stream.py` and `frontend/src/stream.ts` |
@@ -87,6 +88,12 @@ Normal actions hold Z. Menu confirm, pause, restart, and guard hotkeys are outsi
 
 The game tick is 60 Hz. Action timing v3 holds for at least two native ticks after sending. Keep capture, planning, policy, SendInput, and first observed matching input as distinct monotonic times. The first matching sample gives an observation bound on input response. A held action may have zero new events. Input diagnostics use up to 64 valid recent samples. Version 3 adds capture and pre-policy work breakdowns tied to the same observation.
 
+The optional `input_thread_timing` column in `actions.csv` is empty or contains `version`, `thread_id`, and three eight-element arrays named `wall_ns`, `cpu_ns`, and `cycles`. The ordered boundaries are capture start and end, planning start and end, policy start and end, and dispatch start and end. The wall array contains monotonic timestamps. The other arrays contain cumulative counters, with `null` for an unavailable CPU reading. Older logs may omit the column.
+
+The `inference.readback` field in each action row records the method used for that decision, either `blocking_event` or `synchronous`. Training status reports the configured method once warmup finishes. Older logs may omit the field.
+
+Planner v9 adds optional action columns. `planner_contact_priority` indicates a change to the fallback candidate set after the short contact check. `planner_warning_exit_priority` identifies ranking or filtering for telegraph clearance. `planner_bottom_escape_priority` identifies ranking for maneuvering room near the bottom.
+
 ## Models, migration, and run evidence
 
 `models/latest.zip` contains the SB3 model, optimizer, and counters. The JSON sidecar records game and model hashes, steps, `gradient_updates`, format and domain versions, provenance, migration, and training goal. `gradient_updates` mirrors SB3's `_n_updates`. Immutable checkpoint history is stored in `models/checkpoints/`. Verify model paths, identities, and hashes before load or replacement.
@@ -148,3 +155,29 @@ Bootstrap returns a token and protocol. Full diagnostics use `/api/state`. The f
 ```
 
 Paths for set/remove are arrays. The client rejects prototype mutation paths. Temperature history supports append with an `after` cursor or reset, capped at 180 points. A missing base or cursor forces resynchronization. The DTO excludes high-frequency internal clocks and full bullet pools. Keep persisted raw evidence independently of the display protocol.
+
+### Performance Monitor
+
+`GET /api/performance` returns a `cpu` object. `usage_percent` is system-wide busy time between consecutive Windows samples. `busiest_core_percent` reports the busiest logical processor in the same interval. `logical_processors` gives the number of logical processors. `status` is `warming`, `live`, or `unavailable`. Unknown readings are `null`. `history` holds up to 90 valid system readings, with a fresh baseline after a gap greater than four seconds.
+
+The visible Performance Monitor page requests CPU readings on demand. The service shares samples across tabs and collects at most once per second. The GPU card uses the independent watchdog's live or historical readings from the existing state SSE.
+
+### Battle View SSE and live commentary
+
+`GET /api/battle-view/events` is a separate loopback SSE stream. Turn on Battle View in the console first. A training, play, or evaluation worker prepares Battle View snapshots only while the switch is on and a client is listening. The default `message` remains a version 1 `off`, `waiting`, or `live` packet. The server publishes live frames at up to 10 Hz and expires frames after 350 ms. `frame.tick` identifies the frame used to choose the executed action. The optional `frame.context` comes from the already captured post-action frame and carries its own `tick`.
+
+```json
+{"tick":7746,"boss_hp_percent":43.9,"current_spellcard":null,"bombs_remaining":2,"miss_count":1}
+```
+
+`boss_hp_percent` reports the current HP of a single visible boss as a percentage of its reported maximum, rounded to one decimal place. A missing or ambiguous reading yields `null`. `current_spellcard` currently yields `null` because the reader has no verified spellcard name. `bombs_remaining` is the current bomb stock and is `null` when the resource reading is absent. `miss_count` counts confirmed misses in the current worker session, at most one per round, including misses while Battle View was off.
+
+Commentary clients can also subscribe to the named `commentary` event. A `miss` carries the cumulative `miss_count` at that event. A `resource_gain` carries `power_delta`, `point_items_delta`, and `bombs_delta`, the net increases between accepted combat frames. These counters cannot distinguish one large Power item from several small ones or identify the source of a bomb stock increase. `stage` is 1–6, 7 for Extra, or `null` when unknown.
+
+```text
+event: commentary
+id: 20261107-201500-000001-train:17
+data: {"version":1,"run_id":"20261107-201500-000001-train","seq":17,"event_id":"20261107-201500-000001-train:17","kind":"resource_gain","stage":2,"tick":7746,"power_delta":8,"point_items_delta":2,"bombs_delta":0,"expires_at_ms":1794053705000}
+```
+
+The stream retains up to 32 recent events for five seconds. An open connection can still receive fresh events after the session pauses or ends normally. DSH can resume with `Last-Event-ID`, deduplicate by `event_id`, and drop events past `expires_at_ms`. When requesting a line of commentary, send confirmed event facts and the latest unexpired snapshot to the language model. The stream consumes existing observations and executed actions. It performs no extra game memory reads and its commentary fields stay outside the PPO observation, reward, and action interfaces.

@@ -25,6 +25,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import Config, DEFAULT_CONSOLE_PORT, DEFAULT_PREVIEW_PORT, ROOT
 from .battle_view import BattleViewStream
+from .console_performance import CpuMonitor
 from .console_service import ConsoleError, ConsoleService
 from .console_stream import SnapshotBroker
 
@@ -70,8 +71,9 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     root = Path(root).resolve()
     service = service or ConsoleService(config, root=root, preview=preview)
     frontend = Path(frontend or root / "frontend/dist").resolve()
-    battle_view = BattleViewStream(service.battle_view_run)
+    battle_view = BattleViewStream(service.battle_view_session)
     broker = SnapshotBroker(service, lambda: battle_view.enabled)
+    cpu_monitor = CpuMonitor()
     @asynccontextmanager
     async def lifespan(app):
         try:
@@ -129,6 +131,10 @@ def create_app(config: Config, *, root=ROOT, preview=False, service=None, fronte
     @app.get("/api/state")
     def state():
         return {**service.snapshot(), 'battle_view_enabled': battle_view.enabled}
+
+    @app.get('/api/performance')
+    def performance():
+        return {'cpu': cpu_monitor.snapshot()}
 
     @app.get("/api/events")
     async def events(request: Request, protocol: Literal["1", "2"] = "1", hidden: bool = False):

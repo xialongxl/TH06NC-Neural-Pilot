@@ -5,7 +5,7 @@ import pytest
 
 from th06ai import environment
 from th06ai.environment import TouhouEnv
-from th06ai.native import Frame
+from th06ai.native import Frame, GameResources
 from th06ai.observations import ObservationBuilder
 from th06ai.rewards import REWARD_VERSION, RewardTracker
 
@@ -194,12 +194,13 @@ def test_real_step_wires_reward_diagnostics_and_keeps_time_limit_nonterminal():
 def test_battle_view_reuses_the_committed_action_without_extra_game_reads():
     def step(enabled):
         before = Frame(10, 192, 390, 3, False, False, np.empty((0, 3), np.float32),
-                       (8, 16, 368, 416), True, 0)
-        after = Frame(12, 195, 387, 3, True, False, before.bullets, before.bounds, True, 0)
+                       (8, 16, 368, 416), True, 0, resources=GameResources(0, 2, 3, 2, 0))
+        after = Frame(12, 195, 387, 3, True, False, before.bullets, before.bounds, True, 0,
+                      resources=GameResources(100, 3, 3, 2, 1))
         env = object.__new__(TouhouEnv)
         env.current = before
         frames = iter((before, after))
-        trace, snapshots = [], []
+        trace, snapshots, gains = [], [], []
         env.reader = SimpleNamespace(read=lambda: (trace.append('read'), next(frames))[1],
                                      window=SimpleNamespace(pid=1))
         env.keys = SimpleNamespace(set=lambda keys: trace.append(keys), release=lambda: None)
@@ -212,14 +213,21 @@ def test_battle_view_reuses_the_committed_action_without_extra_game_reads():
         env.reward_tracker.reset(before)
         env.start_tick = env.total_steps = env.episode_steps = env.episode_seconds = 0
         env.episode_return = 0.0
-        view = SimpleNamespace(demand=enabled or None, capture=lambda *sample: snapshots.append(sample))
+        view = SimpleNamespace(demand=enabled or None,
+                               capture=lambda *sample, after: snapshots.append((*sample, after)),
+                               record_resource_gain=lambda *frames: gains.append(frames))
         env.diagnostics = SimpleNamespace(record=lambda *_: None, status=lambda: {}, battle_view=view)
-        _, reward, terminated, truncated, _ = env.step(15)
-        return before, trace, snapshots, (reward, terminated, truncated)
+        observation, reward, terminated, truncated, _ = env.step(15)
+        return before, after, trace, snapshots, gains, observation, (reward, terminated, truncated)
 
-    _, disabled_trace, disabled_snapshots, disabled_result = step(False)
-    frame, enabled_trace, snapshots, enabled_result = step(True)
+    _, _, disabled_trace, disabled_snapshots, disabled_gains, disabled_obs, disabled_result = step(False)
+    before, after, enabled_trace, snapshots, gains, enabled_obs, enabled_result = step(True)
     assert disabled_trace == enabled_trace == [{'right', 'up', 'shift', 'z'}, 'read', 'read']
     assert disabled_result == enabled_result
-    assert not disabled_snapshots
-    assert len(snapshots) == 1 and snapshots[0][0] is frame and snapshots[0][2] == 15
+    assert disabled_obs.keys() == enabled_obs.keys()
+    for key in enabled_obs:
+        np.testing.assert_array_equal(disabled_obs[key], enabled_obs[key])
+    assert not disabled_snapshots and not disabled_gains
+    assert len(snapshots) == 1 and snapshots[0][0] is before and snapshots[0][2] == 15
+    assert snapshots[0][-1] is after
+    assert len(gains) == 1 and gains[0][0] is before and gains[0][1] is after

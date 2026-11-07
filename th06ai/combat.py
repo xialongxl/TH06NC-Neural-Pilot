@@ -32,22 +32,25 @@ def decode_enemy_bodies(raw, width, height, player_radius=0.):
     if len(raw) != ENEMY_CAPACITY*ENEMY_STRIDE:
         raise RuntimeError(msg('backend.unexpected_enemy_collision_pool_size'))
     data = np.frombuffer(raw, BODY_DTYPE)
-    contact = ((data["active"] < 0) & ((data["flags"] & 7) == 7) & ((data["extra_flags"] & 8) == 0)
-               & np.isfinite(data["x"]) & np.isfinite(data["y"]))
-    sizes = np.column_stack((data["width"], data["height"]))
+    contact = ((data["active"] < 0) & ((data["flags"] & 7) == 7)
+               & ((data["extra_flags"] & 8) == 0))
+    slots = np.flatnonzero(contact)
+    if not slots.size:
+        return np.empty((0, 6), np.float32)
+    x, y = data["x"][slots], data["y"][slots]
+    sizes = np.column_stack((data["width"][slots], data["height"][slots]))
     known = np.all(np.isfinite(sizes) & (sizes >= 0) & (sizes <= 4096), axis=1)
     half = sizes*BODY_HALF_SCALE
     # Unknown geometry is represented explicitly. A whole-field envelope is
     # only an uncertainty fallback, not a guessed physical enemy radius.
     visible_half = np.where(known[:, None], half, [width, height])
     margin = float(player_radius)
-    visible = (contact & (data["x"]+visible_half[:, 0]+margin >= 0) & (data["x"]-visible_half[:, 0]-margin <= width)
-               & (data["y"]+visible_half[:, 1]+margin >= 0) & (data["y"]-visible_half[:, 1]-margin <= height))
-    slots = np.flatnonzero(visible)
-    selected_half = half[visible].copy()
+    visible = (np.isfinite(x) & np.isfinite(y)
+               & (x+visible_half[:, 0]+margin >= 0) & (x-visible_half[:, 0]-margin <= width)
+               & (y+visible_half[:, 1]+margin >= 0) & (y-visible_half[:, 1]-margin <= height))
+    selected_half = half[visible]
     selected_half[~known[visible]] = np.nan
-    return np.column_stack((slots, data["x"][visible], data["y"][visible], selected_half,
-                            known[visible])).astype(np.float32)
+    return np.column_stack((slots[visible], x[visible], y[visible], selected_half, known[visible])).astype(np.float32)
 
 
 def decode_enemies(raw, width, height, boss_rvas=()):
@@ -55,17 +58,22 @@ def decode_enemies(raw, width, height, boss_rvas=()):
     if len(raw) != ENEMY_CAPACITY * ENEMY_STRIDE:
         raise RuntimeError(msg('backend.unexpected_enemy_pool_size'))
     data = np.frombuffer(raw, dtype=ENEMY_DTYPE)
-    active = data["active"] < 0
-    finite = np.isfinite(data["x"]) & np.isfinite(data["y"])
-    if np.any(active & ~finite):
+    slots = np.flatnonzero(data["active"] < 0)
+    if not slots.size:
+        return np.empty((0, 8), np.float32)
+    x, y = data["x"][slots], data["y"][slots]
+    if not np.all(np.isfinite(x) & np.isfinite(y)):
         raise RuntimeError(msg('backend.invalid_coordinates_for_an_active_enemy'))
-    visible = (active & finite & (data["x"] >= 0) & (data["x"] <= width) &
-               (data["y"] >= 0) & (data["y"] <= height) & (data["hp"] > 0) &
-               (data["max_hp"] > 0) & (data["hp"] <= data["max_hp"]))
-    slots = np.flatnonzero(visible)
-    boss = np.isin(ENEMY_POOL + slots * ENEMY_STRIDE, boss_rvas) & ((data["flags"][visible] & 8) != 0)
-    return np.column_stack((slots, data["x"][visible], data["y"][visible], data["hp"][visible],
-                            data["max_hp"][visible], data["phase_hp"][visible], data["flags"][visible], boss)).astype(np.float32)
+    hp, max_hp = data["hp"][slots], data["max_hp"][slots]
+    visible = ((x >= 0) & (x <= width) & (y >= 0) & (y <= height)
+               & (hp > 0) & (max_hp > 0) & (hp <= max_hp))
+    slots = slots[visible]
+    flags = data["flags"][slots]
+    boss = (flags & 8) != 0
+    if boss.any():
+        boss &= np.isin(ENEMY_POOL + slots * ENEMY_STRIDE, boss_rvas)
+    return np.column_stack((slots, x[visible], y[visible], hp[visible], max_hp[visible],
+                            data["phase_hp"][slots], flags, boss)).astype(np.float32)
 
 
 def damage_feedback(before, after):

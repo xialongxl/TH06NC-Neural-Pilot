@@ -72,5 +72,5 @@ export interface Snapshot {
   gpu_live: boolean; gpu_age_seconds?: number | null;
 }
 export interface Logs { run_dir: string | null; worker: string; launcher: string }
-export type Page = 'train' | 'models' | 'diagnostics'
+export type Page = 'train' | 'models' | 'performance' | 'diagnostics'
 export type Mode = 'resume' | 'train' | 'play' | 'evaluate' | 'check' | 'monitor' | 'calibrate'

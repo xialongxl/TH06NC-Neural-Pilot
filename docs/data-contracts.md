@@ -12,9 +12,10 @@
 | 观测布局 | 9 | `observations.py:OBSERVATION_VERSION` |
 | 奖励语义 | 9 | `rewards.py:REWARD_VERSION` |
 | 策略／炸弹结构 | 2 | `policy_spec.py:POLICY_VERSION` |
-| 规划语义 | 8 | `planner_spec.py:PLANNER_VERSION` |
+| 规划语义 | 9 | `planner_spec.py:PLANNER_VERSION` |
 | 动作计时语义 | 3 | `observations.py:ACTION_TIMING_VERSION` |
 | 输入延迟诊断记录 | 3 | `input_timing.py:InputTiming.begin` |
+| 控制线程采样子对象 | 1 | `thread_profile.py:ThreadProfile.action` |
 | 碰撞／按键／只读采集原生 ABI | 3 | `native/src/lib.rs:API_VERSION` |
 | 独立搜索 ABI | 1 | `native/src/lib.rs:SEARCH_API_VERSION` |
 | UI 增量协议 | 2；保留旧协议 1 | `console_stream.py` / `frontend/src/stream.ts` |
@@ -138,6 +139,12 @@ padding 的 valid 为 0；集合池化必须用它过滤。未知运动的速度
 
 首次读到匹配是采样上界，不是精确硬件生效时刻。原生 tick 基准为 60Hz；`time.perf_counter_ns` 用于主机时段，ISO 时间用于展示，不能混减。
 
+可选的 `actions.csv` 列 `input_thread_timing` 为空，或包含 `version`、`thread_id` 与三个八元素数组 `wall_ns`、`cpu_ns`、`cycles`。边界顺序为采集开始／结束、规划开始／结束、策略开始／结束、下发开始／结束。`wall_ns` 保存单调时间戳，后两项保存累计计数，`null` 表示对应 CPU 计数不可用。旧日志可以缺少此列。
+
+动作行的 `inference.readback` 记录当次推理的回读方式，值为 `blocking_event` 或 `synchronous`。训练状态中的同名字段记录常规方式，预热前可为 `null`。历史记录可缺少该字段。
+
+规划 v9 新增三个可选动作列。`planner_contact_priority` 表示短窗判定改变回退候选，`planner_warning_exit_priority` 表示预警脱离影响候选或排序，`planner_bottom_escape_priority` 表示底线机动空间影响排序。
+
 ## 5. 模型与迁移
 
 ```text
@@ -231,3 +238,29 @@ REST 路由和写请求约束见[开发者指南](development.md#控制-api)。b
 ```
 
 delta 的 set/remove 使用路径数组；前端拒绝危险原型路径。曲线 `history` 使用 append+after 游标或 reset，最多 180 点。版本断层必须重新同步。DTO 刻意不传内部高频时钟和完整弹幕池；不能让 UI 显示协议成为训练记录的唯一来源。
+
+### 性能监控页
+
+`GET /api/performance` 返回 `cpu` 对象。`usage_percent` 是最近两次 Windows 计数间的整机忙碌百分比，`busiest_core_percent` 是同一时段最忙逻辑处理器的百分比。`logical_processors` 表示逻辑处理器数量。`status` 区分 `warming`、`live` 和 `unavailable`，无法核验的值为 `null`。`history` 最多保留 90 次有效整机读数，停止采样超过 4 秒后重新建立基线。
+
+打开可见的性能页才按需请求 CPU。服务合并各标签页的请求，采样间隔至少 1 秒。GPU 继续使用现有状态 SSE 中独立保护进程发布的实时或历史数据。
+
+### 战场 SSE 与直播解说
+
+`GET /api/battle-view/events` 是独立的本机 SSE。先在控制台开启战场视角。开关开启且有订阅者时，训练、试玩或评估的 worker 才会为战场流准备快照。默认 `message` 仍是版本 1 的 `off`、`waiting` 或 `live` 包。`live` 包最多每秒发送 10 次，快照超过 350 ms 即失效。`frame.tick` 标识执行该动作时使用的决策帧。可选的 `frame.context` 来自动作完成后的已采集帧，以 `context.tick` 标识。
+
+```json
+{"tick":7746,"boss_hp_percent":43.9,"current_spellcard":null,"bombs_remaining":2,"miss_count":1}
+```
+
+`boss_hp_percent` 是单个可见 Boss 的当前 HP 除以该对象的最大 HP，范围为 0–100，保留一位小数。读数缺失或有多个 Boss 时返回 `null`。`current_spellcard` 暂时始终为 `null`，当前读表未验证符卡名称。`bombs_remaining` 是当前 B 库存，缺少资源读数时为 `null`。`miss_count` 是本次 worker 会话已确认的 Miss 数，每个回合最多计一次，即使当时没有直播订阅也会累计。
+
+直播客户端可另外监听 `event: commentary`。`kind` 为 `miss` 时带有当次累计 `miss_count`。`kind` 为 `resource_gain` 时带有 `power_delta`、`point_items_delta` 和 `bombs_delta`，表示两次有效战斗观测间各计数的净增加量。它们不能区分一颗大 P 与若干小 P，也不能确认 B 库存增加的来源。`stage` 为 1–6、EX 对应的 7，或未知时的 `null`。
+
+```text
+event: commentary
+id: 20261107-201500-000001-train:17
+data: {"version":1,"run_id":"20261107-201500-000001-train","seq":17,"event_id":"20261107-201500-000001-train:17","kind":"resource_gain","stage":2,"tick":7746,"power_delta":8,"point_items_delta":2,"bombs_delta":0,"expires_at_ms":1794053705000}
+```
+
+事件旁路最多保留最近 32 条，有效期为 5 秒。暂停或正常结束后，连接仍可收到有效期内的最后几条事件。DSH 可在重连时发送 `Last-Event-ID`，并用 `event_id` 去重，超过 `expires_at_ms` 的消息应丢弃。收到事件后，可把确认的事实连同最近一条有效快照交给语言模型生成解说。战场流只消费现有观测与执行结果，无需重新读游戏内存，直播字段也不进入 PPO 观测、奖励或动作接口。

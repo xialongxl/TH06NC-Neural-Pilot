@@ -11,7 +11,7 @@ from typing import Callable
 import gymnasium as gym
 import numpy as np
 
-from .config import Config, ROOT
+from .config import Config, READBACK_AB_STEPS, ROOT
 from .files import read_json
 from .planning import PlanResult, RollingPlanner
 from .native import Frame, GameReader, INPUT_WORD
@@ -96,6 +96,13 @@ class TouhouEnv(gym.Env):
         self.diagnostics = SessionDiagnostics(run_dir, mode)
         self.reader.observer = self.diagnostics.observe
         self.reader.control_observer = self.diagnostics.observe_control
+        profile_steps = self.diagnostics_config.thread_profile_steps
+        if mode == 'train' and self.diagnostics_config.readback_ab:
+            profile_steps = max(profile_steps, READBACK_AB_STEPS)
+        if profile_steps:
+            from .thread_profile import ThreadProfile
+            self.thread_profile = ThreadProfile(profile_steps)
+            self.reader.thread_profile = self.builder.thread_profile = self.thread_profile
 
     def _timing(self):
         if not hasattr(self, 'input_timing'):
@@ -109,8 +116,17 @@ class TouhouEnv(gym.Env):
     def _full_frame(self, sample):
         return sample if isinstance(sample, Frame) else self.reader.read()
 
+    def begin_policy_timing(self):
+        profile = getattr(self, 'thread_profile', None)
+        if profile is not None:
+            profile.begin_policy(self.current)
+        return clock_ns()
+
     def record_policy_timing(self, started_ns, completed_ns):
         self._timing().policy(started_ns, completed_ns)
+        profile = getattr(self, 'thread_profile', None)
+        if profile is not None:
+            profile.end_policy(self.current)
 
     def record_pre_policy_work(self, **milliseconds):
         self._timing().record_work(self.current, **milliseconds)
@@ -773,6 +789,10 @@ class TouhouEnv(gym.Env):
         diagnostics = getattr(self, 'diagnostics', None)
         if diagnostics is not None:
             diagnostics.event(event=reason, **info)
+            view = getattr(diagnostics, 'battle_view', None)
+            if view is not None and died:
+                view.record_miss(self.episode_count, origin.stage_id,
+                                 frame.tick if death_probe_tick is None else death_probe_tick)
         # A menu observation is not a fabricated zero-reward combat action.
         raise SamplingInterrupted(episode_end=info)
 
@@ -1003,9 +1023,12 @@ class TouhouEnv(gym.Env):
         requested_keys = action_keys(action)
         if hasattr(self.keys,'reconcile'):
             self.keys.reconcile('z')
+        profile = getattr(self, 'thread_profile', None)
+        thread_started = profile.mark() if profile is not None else None
         switch_started = clock_ns()
         dispatch = self.keys.set(requested_keys)
         switch_completed = clock_ns()
+        thread_finished = profile.mark() if thread_started is not None else None
         # Test doubles and third-party controllers may not return OS timing.
         if not isinstance(dispatch, dict):
             dispatch = {'started_ns': switch_started, 'completed_ns': switch_completed,
@@ -1013,6 +1036,10 @@ class TouhouEnv(gym.Env):
         timing = self._timing()
         timing.begin(before, decision_plan, requested_keys,
                      previous_keys, dispatch)
+        if thread_started is not None:
+            trace = profile.action(before, decision_plan, thread_started, thread_finished)
+            if trace is not None:
+                timing.latest['thread_timing'] = trace
         timing.latest['key_switch_ms'] = (switch_completed-switch_started)/1e6
         timing.latest['observation_build_ms'] = self.builder.last_build_ms
         timing.latest['read_total_ms'] = (before.capture_finished_ns-before.capture_started_ns)/1e6 if before.capture_started_ns else None
@@ -1077,11 +1104,20 @@ class TouhouEnv(gym.Env):
         self.last_action = action
         self._observe_control(f, action)
         latency = self._timing().finish()
+        if 'thread_timing' in latency:
+            self.thread_profile.commit()
         diagnostics = getattr(self,'diagnostics',None)
         view = getattr(diagnostics, 'battle_view', None)
-        if (view is not None and view.demand is not None and not (died or truncated)
-                and phase_of(before) in ('combat', 'boss') and phase_of(f) in ('combat', 'boss')):
-            view.capture(before, sample.decision_plan, action, latency['game_input_state'], self.total_steps)
+        if view is not None:
+            if died:
+                view.record_miss(self.episode_count, f.stage_id,
+                                 f.tick if sample.death_probe_tick is None else sample.death_probe_tick)
+            elif (view.demand is not None and phase_of(before) in ('combat', 'boss')
+                  and phase_of(f) in ('combat', 'boss')):
+                view.record_resource_gain(before, f)
+                if not truncated:
+                    view.capture(before, sample.decision_plan, action, latency['game_input_state'],
+                                 self.total_steps, after=f)
         planner = self.builder.planner
         if planner is not None:
             planner.record_latency(latency)

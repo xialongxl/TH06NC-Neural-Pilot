@@ -37,6 +37,15 @@ def test_decode_visible_enemies_and_hud_confirmed_boss_marker():
     assert decode_enemies(data.tobytes(), 384, 448)[:, 7].sum() == 0
 
 
+def test_active_enemy_coordinates_are_validated_before_hp_filter():
+    data = np.zeros(ENEMY_CAPACITY, dtype=ENEMY_DTYPE)
+    data[4]["x"] = np.nan
+    assert decode_enemies(data.tobytes(), 384, 448).shape == (0, 8)
+    data[4]["active"] = -128
+    with pytest.raises(RuntimeError):
+        decode_enemies(data.tobytes(), 384, 448)
+
+
 def test_enemy_observation_contains_position_health_boss_and_damageable_state():
     builder = ObservationBuilder()
     observation = builder.build(enemy_frame())

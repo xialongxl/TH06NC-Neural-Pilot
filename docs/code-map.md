@@ -66,6 +66,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [web_console.py](../th06ai/web_console.py) | 请求模型、回环路由、token/Origin、SSE、静态 UI | ConsoleService、SnapshotBroker |
 | [console_service.py](../th06ai/console_service.py) | 模型 ID、会话状态、明确操作、日志与本机配置缓存 | model_store、control、files |
 | [console_stream.py](../th06ai/console_stream.py) | 共享采样、DTO、diff、曲线游标、SSE 编码与背压 | 服务快照、前端 stream.ts |
+| [console_performance.py](../th06ai/console_performance.py) | 整机及最忙逻辑处理器的按需 CPU 读数与短期历史 | Windows 处理器计数、性能监控页 |
 | [battle_view.py](../th06ai/battle_view.py) | 独立战场流、最新快照槽和调试图打包 | 只读展示、诊断子进程 |
 | [dashboard.py](../th06ai/dashboard.py) | 旧 Tk 兼容控制台 | 同一 CLI／保护协议；非主界面 |
 
@@ -107,7 +108,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [rewards.py](../th06ai/rewards.py) | RewardTracker、资源预算、驻留／顶墙、奖励分项 | 奖励 v9、gamma |
 | [planner_spec.py](../th06ai/planner_spec.py) | 轻量规划常量及 PlanningConfig | 保护进程可安全导入 |
 | [navigation.py](../th06ai/navigation.py) | 导航／决策列及出口、条件 B 先验常量 | navigation/decision |
-| [planning.py](../th06ai/planning.py) | 连续几何、beam 搜索、时序探测、回退、原生选择 | PlanResult／规划 v8 |
+| [planning.py](../th06ai/planning.py) | 连续几何、beam 搜索、时序探测、回退、原生选择 | PlanResult／规划 v9 |
 | [acceleration.py](../th06ai/acceleration.py) | 可选扩展发现、拥有型序列化、RustKeyController | API v2／搜索 v1 |
 | [native_planner/__init__.py](../th06ai/native_planner/__init__.py) | 独立搜索扩展包入口 | 无二进制时仍可导入包 |
 | [native_runtime/__init__.py](../th06ai/native_runtime/__init__.py) | ABI v3 扩展包入口 | 只读批量采集、输入和几何；无二进制时回退参考路径 |
@@ -122,6 +123,7 @@ Python 导入包仍叫 `th06ai`，发行项目名是 TH06NC-Neural-Pilot。不�
 | [environment.py](../th06ai/environment.py) | 游戏状态机、输入、reset/step、时序、奖励、跨关 | 所有 worker 游戏模式共享 |
 | [control.py](../th06ai/control.py) | TrainingControl、PAUSE/FOCUS/FINISH 协作、采样中断 | 与紧急保护分离 |
 | [input_timing.py](../th06ai/input_timing.py) | 主机时间线、匹配方向位、最近分位数 | 不发键、不做停机决策 |
+| [thread_profile.py](../th06ai/thread_profile.py) | 可选的同动作控制线程计数和离线汇总 | 观测、规划与动作必须匹配 |
 | [pausable_ppo.py](../th06ai/pausable_ppo.py) | 单环境 rollout gate、真实转移、边界自举 | SB3 派生流程 |
 | [ppo_update.py](../th06ai/ppo_update.py) | 资源策略 PPO 更新与探索损失 | 与 ResourcePolicy 保持一致 |
 | [learning.py](../th06ai/learning.py) | 模型创建／加载／迁移／保存，回调与独立评估 | 不删除原模型，安全边界更新 |

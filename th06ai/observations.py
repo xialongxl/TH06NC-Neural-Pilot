@@ -56,6 +56,7 @@ class ObservationBuilder:
     """Geometry/temporal preprocessing only. Never selects or modifies actions."""
     def __init__(self, planner=None, goal='survival', *, feature_cache=None):
         self.planner = planner
+        self.thread_profile = None
         self.feature_cache = feature_cache if feature_cache is not None else BulletStateCache()
         if goal not in ('survival','nmnb'):raise ValueError(msg('backend.unknown_session_goal'))
         self.goal = goal
@@ -103,28 +104,28 @@ class ObservationBuilder:
         bullets = np.zeros((NEAREST, 5), dtype=np.float32)
         full_bullets = np.zeros((FULL_BULLETS, FULL_BULLET_FEATURES), dtype=np.float32)
         current = frame.bullets
+        n_full = len(current)
         state = None
-        if len(current):
+        if n_full:
             relative = current[:, 1:3] - np.array([frame.x, frame.y], np.float32)
             indices = np.argsort(np.sum(relative * relative, axis=1), kind="stable")[:NEAREST]
             n = len(indices)
-            bullets[:n, :2] = relative[indices] / (width, height)
             state = self.feature_cache.get(frame, previous)
-            bullets[:n, 2:4] = state.velocity[indices] / 16
+            visible = full_bullets[:n_full]
+            visible[:, :2] = relative / (width, height)
+            visible[:, 2:4] = state.velocity / 16
+            # The near branch shares the normalized rows before full-field clipping.
+            bullets[:n, :4] = visible[indices, :4]
             bullets[:n, 4] = 1
-            # Keep ALL visible rows in the verified pool. The separate near
-            # branch retains its original geometry and pooling distribution.
-            n_full = len(current)
-            full_bullets[:n_full, :2] = relative / (width, height)
-            full_bullets[:n_full, 2:4] = state.velocity / 16
-            full_bullets[:n_full, 4] = state.known_motion
-            full_bullets[:n_full, 5] = state.radius / 128
-            full_bullets[:n_full, 6] = state.known_geometry
-            full_bullets[:n_full, 7] = state.closest_tick / PREDICTION_TICKS
-            full_bullets[:n_full, 8] = state.predicted_clearance / 512
-            full_bullets[:n_full, 9] = 1
+            visible[:, 4] = state.known_motion
+            visible[:, 5] = state.radius / 128
+            visible[:, 6] = state.known_geometry
+            visible[:, 7] = state.closest_tick / PREDICTION_TICKS
+            visible[:, 8] = state.predicted_clearance / 512
+            visible[:, 9] = 1
+            np.clip(visible, -2, 2, out=visible)
         player = np.array([frame.x / width, frame.y / height,
-                           float(frame.focused), min(len(current) / 640, 1)], dtype=np.float32)
+                           float(frame.focused), min(n_full / 640, 1)], dtype=np.float32)
         items = np.zeros((NEAREST_ITEMS, ITEM_FEATURES), dtype=np.float32)
         if len(frame.items):
             relative_items = frame.items[:, 1:3] - [frame.x, frame.y]
@@ -181,7 +182,11 @@ class ObservationBuilder:
             speeds = getattr(frame, 'movement_speeds', None)
             if speeds is not None:
                 self.planner.set_speeds(*speeds)
+            profile = self.thread_profile
+            thread_started = profile.mark() if profile is not None else None
             self.last_plan = self.planner.plan(frame, previous, control, state=state)
+            if thread_started is not None:
+                profile.planned(frame, self.last_plan, thread_started)
             planning = self.last_plan.features
             if self.last_plan.navigation is not None:navigation = self.last_plan.navigation
             if self.last_plan.decision is not None:decision = self.last_plan.decision.copy()
@@ -190,7 +195,7 @@ class ObservationBuilder:
         result = {"bullets": bullets, "player": np.clip(player, 0, 1),
                 "items": np.clip(items, -2, 2), "resources": np.clip(resources, 0, 1),
                 "enemies": np.clip(enemies, -2, 2), "control": np.clip(control, -2, 2),
-                "full_bullets": np.clip(full_bullets, -2, 2), "planning": planning,
+                "full_bullets": full_bullets, "planning": planning,
                 'stage': stage_vector(frame.stage_id), 'navigation':navigation,'decision':decision,
                 'game_context': context_vector(frame)}
         self.last_build_ms = (clock_ns()-started_ns)/1e6

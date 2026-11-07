@@ -1,12 +1,17 @@
 """Batch-one inference buffers and optional CUDA graphs. No game or input handles."""
 from __future__ import annotations
 from .i18n import msg
+from .config import INFERENCE_READBACK_MODES, READBACK_AB_STEPS
+from .thread_profile import thread_cycle_reader
 from collections import deque
 from dataclasses import dataclass
+from random import Random
 import threading
 import time
 import numpy as np
 import torch
+
+_CONFIGURED_READBACK = object()
 
 
 @dataclass
@@ -18,12 +23,34 @@ class Decision:
     timing: dict
 
 
+class LiveReadbackTrial:
+    """One method per action. Randomized pair order uses a separate CPU RNG."""
+    def __init__(self):
+        order_rng = Random(0)
+        self._reverse = [bool(order_rng.getrandbits(1)) for _ in range(READBACK_AB_STEPS // 2)]
+        self._completion = torch.cuda.Event(blocking=True)
+        self._cycles = thread_cycle_reader()
+
+    def predict(self, runner, observation, index, lease):
+        pair, position = divmod(index, 2)
+        use_event = self._reverse[pair] != bool(position)
+        decision = runner.predict(observation, lease=lease,
+                                  readback_event=self._completion if use_event else None,
+                                  readback_counter=self._cycles)
+        decision.timing['readback_ab'] = {'pair': pair, 'position': position,
+                                         'method': 'blocking_event' if use_event else 'synchronous'}
+        return decision
+
+
 class PolicyRunner:
     """One serialized policy owner; training and graph replay share parameter storage."""
-    def __init__(self, policy, backend='auto', *, profile=False):
+    def __init__(self, policy, backend='auto', *, profile=False, readback='auto'):
         if backend not in ('auto', 'eager', 'cuda_graph'):
             raise ValueError(msg('backend.unknown_inference_backend'))
+        if readback not in INFERENCE_READBACK_MODES:
+            raise ValueError(msg('backend.inference_readback_must_be_auto_or_synchronous'))
         self.policy, self.requested = policy, backend
+        self.requested_readback = readback
         self.device = policy.device
         if backend == 'cuda_graph' and self.device.type != 'cuda':
             raise ValueError(msg('backend.cuda_graph_requires_a_cuda_model'))
@@ -45,10 +72,13 @@ class PolicyRunner:
         self.result_view = self.result_host.numpy()
         self.graphs, self.outputs = {}, {}
         self.ready = False
+        self.readback_trial = None
+        self._default_readback_event = None
         self.engine = 'cuda_eager' if cuda else 'cpu_eager'
         self.fallback_reason = None
         self.timings = deque(maxlen=256)
         self.profile = bool(profile)
+        self._readback_cycles = thread_cycle_reader() if profile and cuda else None
         self.events = ({mode:(torch.cuda.Event(enable_timing=True,external=True),
                               torch.cuda.Event(enable_timing=True,external=True)) for mode in (False,True)}
                        if profile and cuda else {})
@@ -104,7 +134,6 @@ class PolicyRunner:
                     self.engine = 'cuda_graph'
                 else:
                     self._submit(False)
-                self.ready = True
             except RuntimeError as error:
                 text = str(error).lower()
                 # A capture limitation falls back to CUDA eager, never CPU.
@@ -115,14 +144,28 @@ class PolicyRunner:
                     self.fallback_reason = str(error)
                     self.engine = 'cuda_eager'
                     self._submit(False)
-                    self.ready = True
                 else:raise
             finally:
                 self.policy._fast_inference = previous
+            if self.engine == 'cuda_graph' and self.requested_readback == 'auto':
+                self._default_readback_event = torch.cuda.Event(blocking=True)
+            self.ready = True
 
-    def predict(self, observation, deterministic=False, lease=lambda: None):
+    def _read_result(self, output, completion):
+        self.result_host.copy_(output.detach(), non_blocking=completion is not None)
+        if completion is not None:
+            # The pinned CPU view is safe to consume only after the D2H copy.
+            completion.record(torch.cuda.current_stream(self.device))
+            completion.synchronize()
+        return self.result_view
+
+    def predict(self, observation, deterministic=False, lease=lambda: None, *, readback_event=_CONFIGURED_READBACK,
+                readback_counter=None):
+        if readback_event is not _CONFIGURED_READBACK and readback_event is not None and self.device.type != 'cuda':
+            raise ValueError(msg('backend.cuda_readback_requires_a_cuda_model'))
         with self.lock, torch.no_grad():
             if not self.ready:self.warmup(observation, lease)
+            completion = self._default_readback_event if readback_event is _CONFIGURED_READBACK else readback_event
             lease()
             started = time.perf_counter_ns()
             self._fill(observation)
@@ -138,8 +181,10 @@ class PolicyRunner:
                     output = self._submit(deterministic)
                 submitted = time.perf_counter_ns()
                 # One small D2H transfer for action/value/log-prob/B probability.
-                self.result_host.copy_(output.detach(), non_blocking=False)
-                packed = self.result_view
+                counter = self._readback_cycles if readback_counter is None else readback_counter
+                cycles_before = counter() if counter is not None else None
+                packed = self._read_result(output, completion)
+                cycles_after = counter() if counter is not None else None
             finally:self.policy._fast_inference = previous
             if not np.isfinite(packed).all():raise RuntimeError(msg('backend.the_policy_returned_non_finite_values'))
             finished = time.perf_counter_ns()
@@ -148,7 +193,11 @@ class PolicyRunner:
                       'execute_ms':(finished-filled)/1e6,'total_ms':(finished-started)/1e6,
                       'submit_ms':(submitted-filled)/1e6,'result_wait_copy_ms':(finished-submitted)/1e6,
                       'gpu_stream_ms':events[0].elapsed_time(events[1]) if events else None,
-                      'fallback_reason':self.fallback_reason}
+                      'fallback_reason':self.fallback_reason,
+                      'readback':'blocking_event' if completion is not None else 'synchronous'}
+            if self.profile or readback_counter is not None:
+                timing['readback_thread_cycles'] = (cycles_after - cycles_before
+                    if cycles_before is not None and cycles_after is not None and cycles_after >= cycles_before else None)
             self.timings.append(timing['total_ms'])
             return Decision(packed[:,0].astype(np.int64),
                             torch.from_numpy(packed[:,1:2].copy()),
@@ -157,5 +206,7 @@ class PolicyRunner:
     def diagnostics(self):
         samples = np.asarray(self.timings)
         return {'engine':self.engine,'samples':len(samples),'fallback_reason':self.fallback_reason,
+                'readback':('blocking_event' if self._default_readback_event is not None else 'synchronous')
+                           if self.ready else None,
                 'p50_ms':float(np.percentile(samples,50)) if len(samples) else None,
                 'p95_ms':float(np.percentile(samples,95)) if len(samples) else None}

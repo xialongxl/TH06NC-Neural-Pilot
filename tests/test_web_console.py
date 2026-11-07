@@ -84,6 +84,20 @@ def test_battle_view_toggle_is_read_only_for_the_worker_and_uses_console_token(s
     assert not calls and not (root / 'runs').exists()
     assert client.post('/api/battle-view', json={'enabled': False}).json()['enabled'] is False
 
+
+def test_battle_view_keeps_the_run_for_commentary_without_requesting_live_frames(setup):
+    root, _, service, _, calls, _ = setup
+    assert service.battle_view_session() == (None, False)
+    run = session(root)
+    assert service.battle_view_session() == (run, True)
+    (run / 'PAUSE').touch()
+    assert service.battle_view_session() == (run, False)
+    (run / 'PAUSE').unlink()
+    session(root, state='stopped', age=10)
+    assert service.battle_view_session() == (run, False)
+    assert not calls
+
+
 def test_acceleration_changes_only_idle_config_without_starting_a_worker(setup):
     root,checkpoint,service,client,calls,_=setup
     before=checkpoint.read_bytes()

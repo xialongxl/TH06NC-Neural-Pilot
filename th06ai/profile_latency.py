@@ -30,7 +30,7 @@ def profile_latency(config,run_dir,source,heartbeat,repeats=96,*,wait_for_combat
     digest=hashlib.sha256(path.read_bytes()).hexdigest()
     heartbeat.update(phase=msg('backend.read_only_latency_profile'),message=msg('backend.timing_game_reads_and_inference_without_key'))
     model=load_model(path,None,config.device)
-    runner=PolicyRunner(model.policy,config.inference_backend,profile=True)
+    runner=PolicyRunner(model.policy,config.inference_backend,profile=True,readback=config.inference_readback)
     runner.warmup(lease=heartbeat.lease)
     reader=GameReader(config.game_path)
     if getattr(config, 'capture_backend', 'auto') != 'auto':

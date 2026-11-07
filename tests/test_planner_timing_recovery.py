@@ -7,7 +7,7 @@ import pytest
 from th06ai.acceleration import search_extension
 from th06ai.navigation import NAV_FIELDS
 from th06ai.observations import action_keys
-from th06ai.planning import RollingPlanner, swept_segments
+from th06ai.planning import COLLISION_PADDING, RollingPlanner, swept_segments
 from th06ai.planning import rectangle_sweep
 from th06ai.body_state import visible_body_state
 from th06ai.bullet_state import visible_bullet_state
@@ -106,6 +106,61 @@ def test_warning_laser_fallback_checks_damaging_hazards_across_the_switch_window
     assert not result.diagnostics.get('active_threat_priority')
 
 
+@pytest.mark.parametrize('backend', ['python', 'rust'])
+def test_contact_fallback_keeps_the_lane_between_live_lasers(backend):
+    if backend == 'rust' and search_extension() is None:
+        pytest.skip('optional Rust search not built')
+    current = frame(x=200.)
+    # The actual lane is open. The forecast margins touch both sides and the
+    # warning overlaps the player. Reopening horizontal moves hits live beams.
+    current.lasers = np.array([(0, 192.1, 0, 0, 448, np.pi/2, 4, 1),
+                               (1, 207.9, 0, 0, 448, np.pi/2, 4, 1),
+                               (2, 200, 0, 0, 448, np.pi/2, 4, 0)], np.float32)
+    planner = RollingPlanner(PlanningConfig(collision_backend=backend))
+    result = planner.plan(current, replace(current, tick=100))
+    allowed = np.flatnonzero(result.features[:, 1])
+    assert result.diagnostics['contact_priority']
+    assert result.diagnostics['route_mode'] == 'fallback'
+    assert result.diagnostics['timing_contact_free_roots'] == 0
+    assert len(allowed) and set(allowed % 9) <= {0, 1, 2}
+    assert not result.navigation[:, NAV_FIELDS.index('robust_safe')].any()
+
+
+def test_warning_exit_narrows_existing_moves_before_activation():
+    current = frame()
+    current.lasers = np.array([(0, 192, 0, 0, 448, np.pi/2, 4, 0)], np.float32)
+    previous = replace(current, tick=100)
+    planner = RollingPlanner()
+    result = planner.plan(current, previous)
+    # A short active-threat check admits hold and slow left, as in the
+    # recorded Stage 1 warning case. Only slow left leaves the warning.
+    features = result.features.copy()
+    features[:, 1] = 0.
+    features[[9, 12], 1] = 1.
+    result = replace(result, features=features,
+                     diagnostics={**result.diagnostics, 'suggested_movement': 9, 'active_threat_priority': True})
+    revised = planner._prefer_warning_exit(result, np.array([192., 320.]), np.zeros(2),
+                    np.array([8., 16.]), np.array([376., 432.]), visible_body_state(current, previous),
+                    np.array([False]))
+    np.testing.assert_array_equal(np.flatnonzero(revised.features[:, 1]), [12])
+    assert revised.diagnostics['warning_exit_priority']
+    assert revised.diagnostics['suggested_movement'] == 12
+
+
+def test_bottom_pressure_adds_escape_bias_within_the_existing_mask(monkeypatch):
+    current = frame(x=200., y=429., bullets=[(0, 210, 430), (1, 189, 430)])
+    planner = RollingPlanner()
+    previous = replace(current, tick=100)
+    preferred = planner.plan(current, previous)
+    assert preferred.diagnostics['bottom_escape_priority']
+    assert not RollingPlanner().plan(frame(x=200., y=429.)).diagnostics.get('bottom_escape_priority')
+    monkeypatch.setattr(planner, '_prefer_bottom_exit', lambda result, *_: result)
+    original = planner.plan(current, previous)
+    np.testing.assert_array_equal(preferred.features[:, 1], original.features[:, 1])
+    assert preferred.features[1, 1] and preferred.features[0, 1]
+    assert preferred.features[1, 7] - preferred.features[0, 7] > original.features[1, 7] - original.features[0, 7]
+
+
 def test_switch_estimate_uses_pairs_and_forgets_old_outliers():
     planner=RollingPlanner()
     planner.record_latency({'post_plan_to_send_ms':80,'movement_changed':True,
@@ -180,6 +235,9 @@ def test_interior_switch_time_can_collide_while_both_endpoints_are_free():
     covered=planner._timing_probe(*args,interval,*geometry)
     assert endpoints[0][1] and complete
     assert not covered[0][1] and 2<covered[1][1]<6
+    contact = {'clearance_floor': -COLLISION_PADDING + 1e-4}
+    assert planner._timing_probe(*args, (1, 3), *geometry, **contact)[0][1]
+    assert not planner._timing_probe(*args, interval, *geometry, **contact)[0][1]
 
 
 def test_recorded_boss_death_does_not_reopen_early_collision_via_nominal_union():

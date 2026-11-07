@@ -156,3 +156,43 @@ def test_evaluation_also_recovers_from_clock_rebase(tmp_path):
     report = learning.evaluate(model, env, tmp_path, lambda **_: None, lambda: None, episodes=1)
     assert len(report["episodes"]) == 1
     assert env.calls == 33 and env.paused
+
+
+def test_live_readback_trial_pairs_only_the_first_rollout(monkeypatch):
+    from stable_baselines3.common.callbacks import BaseCallback
+    from th06ai.inference import LiveReadbackTrial, PolicyRunner
+
+    torch.set_num_threads(1)
+    env = LearningFixture()
+    model = learning.make_model(env, 'cpu')
+    model.training_game = env
+    model.training_control = SimpleNamespace(gate=lambda game: False, lease=lambda: None)
+    runner = PolicyRunner(model.policy, 'eager')
+    completion = object()
+    monkeypatch.setattr(torch.cuda, 'Event', lambda *, blocking: completion if blocking else None)
+    runner.readback_trial = LiveReadbackTrial()
+    events, tags = [], []
+    predict = runner.predict
+
+    def observe(observation, *, lease, readback_event=None, readback_counter=None):
+        events.append(readback_event)
+        return predict(observation, lease=lease)
+
+    class ObserveTrial(BaseCallback):
+        def _on_step(self):
+            tags.append(self.locals['infos'][0]['inference'].get('readback_ab'))
+            return True
+
+    runner.predict = observe
+    model.decision_runner = runner
+    model.learn(total_timesteps=2 * model.n_steps, callback=ObserveTrial())
+
+    assert len(events) == len(tags) == 2 * model.n_steps
+    assert runner.readback_trial is None and all(tag is None for tag in tags[model.n_steps:])
+    assert all(event is None for event in events[model.n_steps:])
+    for index in range(0, model.n_steps, 2):
+        first, second = tags[index:index + 2]
+        assert first['pair'] == second['pair'] == index // 2
+        assert (first['position'], second['position']) == (0, 1)
+        assert {first['method'], second['method']} == {'synchronous', 'blocking_event'}
+        assert sum(event is completion for event in events[index:index + 2]) == 1

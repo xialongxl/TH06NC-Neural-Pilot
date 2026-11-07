@@ -11,6 +11,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.utils import obs_as_tensor
 
 from .control import SamplingInterrupted
+from .config import READBACK_AB_STEPS
 from .input_timing import clock_ns
 
 
@@ -43,6 +44,10 @@ class PausablePPO(PPO):
         rollout_buffer.reset()
         rollout_buffer.gae_ready = False
         callback.on_rollout_start()
+        runner = self.decision_runner
+        readback_trial = getattr(runner, 'readback_trial', None)
+        if readback_trial is not None:
+            runner.readback_trial = None
         n_steps = 0
         refresh_needed = False
         while n_steps < n_rollout_steps:
@@ -58,9 +63,12 @@ class PausablePPO(PPO):
                     self.training_game.pending_stage_boundary = False
                 self._refresh_observation()
                 refresh_needed = False
-            policy_started = clock_ns()
-            if self.decision_runner is not None:
-                decision = self.decision_runner.predict(self._last_obs, lease=self.training_control.lease)
+            policy_started = getattr(self.training_game, 'begin_policy_timing', clock_ns)()
+            if runner is not None:
+                if readback_trial is not None and n_steps < READBACK_AB_STEPS:
+                    decision = readback_trial.predict(runner, self._last_obs, n_steps, self.training_control.lease)
+                else:
+                    decision = runner.predict(self._last_obs, lease=self.training_control.lease)
                 actions,values,log_probs = decision.actions, decision.values, decision.log_probs
                 bomb_probability = decision.bomb_probability
             else:
@@ -75,7 +83,7 @@ class PausablePPO(PPO):
             try:
                 if hasattr(self.training_game,'refresh_decision'):
                     self.training_game.refresh_decision()
-                if self.decision_runner is not None and hasattr(self.training_game,'record_decision'):
+                if runner is not None and hasattr(self.training_game,'record_decision'):
                     self.training_game.record_decision(decision,self.num_timesteps+1)
                 new_obs, rewards, dones, infos = env.step(actions)
             except SamplingInterrupted as interruption:
@@ -102,7 +110,7 @@ class PausablePPO(PPO):
             self.num_timesteps += env.num_envs
             if bomb_probability is not None:
                 infos[0]['bomb_probability'] = bomb_probability
-            if self.decision_runner is not None:
+            if runner is not None:
                 infos[0]['inference'] = decision.timing
             self._update_info_buffer(infos, dones)
             n_steps += 1

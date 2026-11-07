@@ -47,6 +47,7 @@ Set `game_exe` in `config.json` to the full executable path, then double-click `
 | `input_backend`, `planning.collision_backend` | Python, Rust, or Auto. Dataclass default is Python and the sample selects Auto. |
 | `capture_backend` | Auto batches small fields in Rust when available and reuses large Python buffers. Python uses Python capture. Rust selects the explicit owned large-block path. |
 | `inference_backend` | `auto`, `eager`, or `cuda_graph`. Auto can fall back for graph-capture limitations. |
+| `inference_readback` | `auto` uses blocking-event readback with CUDA Graph and synchronous readback with CUDA eager or CPU. Set `synchronous` to restore synchronous readback on the next session. |
 | `goal` | `survival` or `nmnb`. NMNB masks bomb actions. |
 | `game_setup` | Optional mode, difficulty, character, and starting stage. An explicit launch request can set the session values. |
 | `planning.enabled`, `planning.beam_width` | Planning enabled by default. Beam width defaults to 2 and accepts 1–4. The current move set still has 18 entries. |
@@ -163,6 +164,7 @@ Evaluation requests ten independent rounds by default. Check `evaluation_progres
 | `GET /api/health` | Service identity, checkout, preview flag, and PID |
 | `GET /api/bootstrap?state=false` | Token and protocol. Omitting the query can include initial state |
 | `GET /api/state`, `GET /api/events?protocol=2&hidden=false`, `GET /api/logs` | Full diagnostics, shared display deltas, or bounded log tail |
+| `GET /api/performance` | System CPU readings on demand, shared across tabs and sampled at most once per second |
 | `POST /api/models/select` | Select an existing `model_id` |
 | `POST /api/sessions` | Explicit mode, minutes, optional model, goal, and game setup |
 | `POST /api/session/pause` | Boolean `paused` for a training, play, or evaluation session |

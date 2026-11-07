@@ -1,6 +1,6 @@
 import { message, translateLog, useI18n } from './i18n'
 import type { Locale } from './i18n'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Box, Check, CheckCheck,
@@ -14,9 +14,15 @@ import { useConsole } from './useConsole'
 import { GameSetupFields, useGameSetup } from './GameSetupFields'
 import { gameSettingsLabel } from './gameSetup'
 import { BattleViewPanel } from './BattleView'
+import { Performance } from './Performance'
 
 type Command = (path: string, body?: unknown) => Promise<boolean>
-const TITLES = { train: message("console.training_console"), models: message("console.model_library"), diagnostics: message("console.safety_diagnostics") }
+const TITLES = { train: message("console.training_console"), models: message("console.model_library"), performance: message("console.performance_monitor"), diagnostics: message("console.safety_diagnostics") }
+
+function pageFromHash(): Page {
+  const page = location.hash.slice(1)
+  return Object.hasOwn(TITLES, page) ? page as Page : 'train'
+}
 
 function useGoal(key: string, fallback: 'survival' | 'nmnb') {
   const [goal, setGoal] = useState<'survival' | 'nmnb'>(() => {
@@ -44,72 +50,26 @@ function Dialog({ title, children, close }: { title: string; children: ReactNode
   </dialog>
 }
 
-function TemperatureChartView({ state, live }: { state: Snapshot; live: boolean }) {
-  const { t } = useI18n()
-  const container = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ width: 650, height: 178 })
-  useLayoutEffect(() => {
-    const element = container.current!
-    const measure = (width: number, height: number) => {
-      if (width > 0 && height > 0) setSize(previous =>
-        previous.width === width && previous.height === height ? previous : { width, height })
-    }
-    const initial = element.getBoundingClientRect()
-    measure(initial.width, initial.height)
-    const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width, entry.contentRect.height))
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
-  const values = state.gpu_history.map(p => p.temperature_c)
-  const limit = state.safety.temperature_limit_c
-  const floor = Math.min(30, ...values)
-  const ceiling = Math.max(limit + 5, ...values)
-  const left = 5
-  const right = Math.max(left, size.width - 48)
-  const bottom = Math.max(15, size.height - 28)
-  const y = (v: number) => bottom - (v - floor) / (ceiling - floor) * (bottom - 14)
-  const points = values.map((v, i) => `${left + i * (right - left) / Math.max(1, values.length - 1)},${y(v)}`).join(' ')
-  return <div ref={container} className="chart" role="img" aria-label={values.length ? t("console.gpu_temperature_chart_with_0_recorded_samples", values.length) : t("console.no_gpu_samples_yet")}>
-    <svg viewBox={`0 0 ${size.width} ${size.height}`} preserveAspectRatio="xMinYMin meet">
-      <defs><linearGradient id="temp-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--accent)" stopOpacity=".14" /><stop offset="100%" stopColor="var(--accent)" stopOpacity="0" /></linearGradient></defs>
-      {[floor, (floor + limit) / 2, limit].map((v, i) => <g key={v}>
-        <line x1={left} y1={y(v)} x2={right} y2={y(v)} stroke={i === 2 ? 'var(--danger)' : 'var(--line)'} strokeDasharray={i === 2 ? '4 6' : '2 5'} opacity={i === 2 ? '.5' : '.7'} />
-        <text x={right + 12} y={y(v) + 4} className={i === 2 ? 'chart-limit' : 'chart-label'}>{Math.round(v)}°</text>
-      </g>)}
-      {values.length > 1 && <><polygon points={`${left},${bottom} ${points} ${right},${bottom}`} fill="url(#temp-fill)" /><polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></>}
-      {values.length > 0 && <circle cx={values.length > 1 ? right : left} cy={y(values.at(-1)!)} r="3.2" fill="var(--accent)" />}
-      <text x={left} y={size.height - 3} className="chart-label">{state.active ? t("console.recent_samples") : t("console.previous_session")}</text><text x={right} y={size.height - 3} textAnchor="end" className="chart-label">{live ? t("console.now") : t("console.last_sample")}</text>
-    </svg>
-    {!values.length && <div className="chart-empty"><Activity size={22} /><span>{t("console.samples_appear_after_monitoring_starts")}</span></div>}
-  </div>
-}
-const TemperatureChart = memo(TemperatureChartView, (a, b) => a.live === b.live && a.state.gpu_history === b.state.gpu_history
-  && a.state.active === b.state.active && a.state.gpu_live === b.state.gpu_live
-  && a.state.safety.temperature_limit_c === b.state.safety.temperature_limit_c)
-
 function MetricView({ title, value, unit, note, icon: Icon }: { title: string; value: string; unit?: string; note: string; icon: LucideIcon }) {
   return <article className="metric"><div className="metric-top">{title}<Icon size={15} /></div><div className="metric-value">{value}<span>{unit}</span></div><div className="metric-note">{note}</div></article>
 }
 const Metric = memo(MetricView)
 
-function GuardView({ state, command, enabled, connected }: { state: Snapshot; command: Command; enabled: boolean; connected: boolean }) {
+function GuardView({ state, command, enabled, connected, navigate }: { state: Snapshot; command: Command; enabled: boolean; connected: boolean; navigate: (page: Page) => void }) {
   const { t } = useI18n()
   const gpu = state.session.gpu || {}
   const live = connected && state.gpu_live
-  const memory = gpu.memory_total ? (gpu.memory_used || 0) / gpu.memory_total * 100 : 0
   return <section className="panel guard-panel">
     <div className="panel-heading"><div className="heading-icon mint"><ShieldCheck size={18} /></div><h2>{t("console.independent_gpu_protection")}</h2><span className={`dot ${live ? 'green' : 'gray'}`} /></div>
     <div className="guard-status">{!connected ? t("console.disconnected_showing_last_sample") : live ? t("console.independent_watchdog_active") : state.active ? t("console.waiting_for_telemetry") : gpu.temperature_c != null ? t("console.previous_session_sample_monitoring_inactive") : t("console.the_watchdog_starts_with_the_session")}</div>
     <div className="temperature">{gpu.temperature_c == null ? '—' : Math.round(gpu.temperature_c)}<span>°C</span><div className="temperature-symbol"><Thermometer size={27} strokeWidth={1.3} /></div></div>
     <div className="guard-device">{gpu.name || state.readiness.backend.device || t("console.waiting_for_device_information")}</div>
-    <div className="gpu-substats"><div><span>{t("console.power_draw")}</span><strong>{gpu.power_w?.toFixed(1) ?? '—'} <small>W</small></strong></div><div><span>{t("console.gpu_load")}</span><strong>{gpu.utilization ?? '—'} <small>%</small></strong></div><div><span>{t("console.fans")}</span><strong>{gpu.fan_percent?.[0] ?? '—'} <small>%</small></strong></div></div>
-    <div className="memory-label"><span>{t("console.vram_usage")}</span><span>{gpu.memory_used == null ? '—' : (gpu.memory_used / 2 ** 30).toFixed(1)} <i>/ {gpu.memory_total ? (gpu.memory_total / 2 ** 30).toFixed(0) : '—'} GB</i></span></div>
-    <div className="track thin"><div style={{ width: `${Math.min(memory, 100)}%` }} /></div>
     <div className="guard-rules"><div><span className="rule-dot" />{t("console.core_limit", state.safety.temperature_limit_c)}</div><div><span className="rule-dot" />{t("console.sample_interval", state.safety.poll_seconds * 1000)}</div><div><span className="rule-dot" />{t("console.stale_timeout", state.safety.telemetry_timeout_seconds)}</div></div>
+    <button className="text-btn guard-performance-link" onClick={() => navigate('performance')}>{t('console.performance_monitor')}<ArrowUpRight size={13} /></button>
     <button className="btn danger" disabled={!enabled} onClick={() => void command('session/stop')}><Square size={14} fill="currentColor" />{t("console.emergency_stop")}<kbd>F8</kbd></button>
   </section>
 }
-const Guard = memo(GuardView, (a, b) => a.connected === b.connected && a.command === b.command && a.enabled === b.enabled
+const Guard = memo(GuardView, (a, b) => a.connected === b.connected && a.command === b.command && a.enabled === b.enabled && a.navigate === b.navigate
   && a.state.session.gpu === b.state.session.gpu && a.state.active === b.state.active
   && a.state.gpu_live === b.state.gpu_live && a.state.safety === b.state.safety
   && a.state.readiness.backend.device === b.state.readiness.backend.device)
@@ -163,8 +123,7 @@ function Training({ state, connected, pending, command, navigate }: { state: Sna
           <div className="session-hint"><ShieldCheck size={13} /><span>{!state.readiness.ready ? t("console.complete_the_setup_checks_on_the_safety") : state.busy ? (display(w.message) || t("console.the_gpu_watchdog_remains_active_while_progress")) : display(w.training_finish_reason) || t("console.stage_overtime_hint")}</span></div>
         </div>
       </section>
-      <section className="panel telemetry-panel"><div className="panel-heading"><div className="heading-icon"><Gauge size={18} /></div><h2>{t("console.gpu_telemetry")}</h2><span className="subtle-tag"><span className={`dot ${connected && state.gpu_live ? 'green' : 'gray'}`} />{connected && state.gpu_live ? t("console.live") : t("console.history")}</span></div><div className="telemetry-top"><div><span className="legend-dot" />{t("console.core_temperature")}<span className="telemetry-value">{state.session.gpu?.temperature_c ?? '—'}°C</span></div><span>{t("console.stop_threshold")} {state.safety.temperature_limit_c}°C</span></div><TemperatureChart state={state} live={connected && state.gpu_live} /></section>
-    </div><aside className="workspace-aside"><Guard state={state} command={command} enabled={c.stop} connected={connected} /><section className="panel game-panel"><div className="panel-heading"><div className="heading-icon"><Target size={18} /></div><h2>{t("console.game_state")}</h2><span className="subtle-tag">{state.active ? t("console.current_round") : t("console.previous_session")}</span></div><div className="resource-grid"><div><span className="resource-letter power">P</span><strong>{number(w.resources?.power)}</strong><small>{t("console.power")}</small></div><div><span className="resource-letter bomb">B</span><strong>{number(w.resources?.bombs)}</strong><small>{t("console.bombs")}</small></div><div><Heart size={17} className="life" /><strong>{number(w.resources?.lives)}</strong><small>{t("console.lives")}</small></div></div><div className="game-footer"><span>{t("console.bomb_requests_used")}</span><strong>{w.bomb_requests ?? '—'} / {w.bombs_used ?? '—'}</strong></div></section></aside></div>
+    </div><aside className="workspace-aside"><Guard state={state} command={command} enabled={c.stop} connected={connected} navigate={navigate} /><section className="panel game-panel"><div className="panel-heading"><div className="heading-icon"><Target size={18} /></div><h2>{t("console.game_state")}</h2><span className="subtle-tag">{state.active ? t("console.current_round") : t("console.previous_session")}</span></div><div className="resource-grid"><div><span className="resource-letter power">P</span><strong>{number(w.resources?.power)}</strong><small>{t("console.power")}</small></div><div><span className="resource-letter bomb">B</span><strong>{number(w.resources?.bombs)}</strong><small>{t("console.bombs")}</small></div><div><Heart size={17} className="life" /><strong>{number(w.resources?.lives)}</strong><small>{t("console.lives")}</small></div></div><div className="game-footer"><span>{t("console.bomb_requests_used")}</span><strong>{w.bomb_requests ?? '—'} / {w.bombs_used ?? '—'}</strong></div></section></aside></div>
     <div className="engine-strip"><div className="engine-icon"><Crosshair size={18} /></div><div><strong>{t("console.rolling_path_planner")} <span>v{state.versions.planner}</span></strong><p>{t("console.checks_bullets_and_enemy_collision_bodies_along")}</p></div><div className="engine-stats"><span>{t("console.viable_directions")}<strong>{w.planning?.feasible_roots ?? '—'}<i>/ 18</i></strong></span><span>{t("console.planning_time")}<strong>{w.planning?.elapsed_ms?.toFixed(1) ?? '—'}<i>ms</i></strong></span><span>{t("console.enemy_bodies")}<strong>{w.planning?.considered_enemy_bodies ?? '—'}</strong></span></div></div>
     {create && <Dialog title={t("console.train_a_new_model")} close={() => setCreate(false)}><p className="dialog-copy">{t("console.new_model_description", minutes)}</p><div className="dialog-note"><Info size={17} />{t("console.select_resume_training_to_keep_the_learned")}</div><div className="dialog-actions"><button className="btn secondary" onClick={() => setCreate(false)}>{t("console.cancel")}</button><button className="btn primary" disabled={!c.create} onClick={() => void start('train')}><Plus size={15} />{t("console.create_and_start")}</button></div></Dialog>}
   </>
@@ -326,11 +285,11 @@ export default function App() {
   const [exitDialog, setExitDialog] = useState(false)
   const closing = !serverClosed && ['waiting', 'stopping'].includes(state?.shutdown?.state || '')
   const closeServer = async () => { if (await command('server/shutdown')) setExitDialog(false) }
-  const [page, setPage] = useState<Page>(() => (['train', 'models', 'diagnostics'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'train') as Page)
+  const [page, setPage] = useState<Page>(pageFromHash)
   const [sidebar, setSidebar] = useState(false)
   const [light, setLight] = useState(() => localStorage.getItem('th06-theme') === 'light')
   useEffect(() => { document.documentElement.dataset.theme = light ? 'light' : 'dark'; localStorage.setItem('th06-theme', light ? 'light' : 'dark') }, [light])
-  useEffect(() => { const change = () => { const value = location.hash.slice(1); if (['train', 'models', 'diagnostics'].includes(value)) setPage(value as Page) }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change) }, [])
+  useEffect(() => { const change = () => setPage(pageFromHash()); window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change) }, [])
   useEffect(() => { document.title = `${display(TITLES[page])} · TH06NC-Neural-Pilot` }, [page, display])
   useEffect(() => { window.scrollTo(0, 0) }, [page])
   useEffect(() => {
@@ -341,12 +300,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', guardKeys)
   }, [])
   const navigate = useCallback((next: Page) => { setPage(next); location.hash = next; setSidebar(false) }, [])
+  const openDiagnostics = useCallback(() => navigate('diagnostics'), [navigate])
   return <div className="app-shell">
     {sidebar && <button className="sidebar-backdrop" aria-label={t("console.hide_navigation")} onClick={() => setSidebar(false)} />}
-    <aside className={`sidebar ${sidebar ? 'open' : ''}`}><a className="brand" href="#train" onClick={() => navigate('train')}><Logo /><span>TH06NC<small>NEURAL PILOT</small></span></a><div className="sidebar-caption">{t("console.workspace")}</div><nav aria-label={t("console.main_navigation")}>{([{ id: 'train', icon: LayoutDashboard, text: t("console.training_console") }, { id: 'models', icon: Database, text: t("console.model_library") }, { id: 'diagnostics', icon: ShieldCheck, text: t("console.safety_diagnostics") }] as const).map(n => <button key={n.id} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}><n.icon size={18} strokeWidth={1.7} />{n.text}{page === n.id && <span className="nav-dot" />}</button>)}</nav>
+    <aside className={`sidebar ${sidebar ? 'open' : ''}`}><a className="brand" href="#train" onClick={() => navigate('train')}><Logo /><span>TH06NC<small>NEURAL PILOT</small></span></a><div className="sidebar-caption">{t("console.workspace")}</div><nav aria-label={t("console.main_navigation")}>{([{ id: 'train', icon: LayoutDashboard, text: t("console.training_console") }, { id: 'models', icon: Database, text: t("console.model_library") }, { id: 'performance', icon: Gauge, text: t("console.performance_monitor") }, { id: 'diagnostics', icon: ShieldCheck, text: t("console.safety_diagnostics") }] as const).map(n => <button key={n.id} className={page === n.id ? 'active' : ''} aria-current={page === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}><n.icon size={18} strokeWidth={1.7} />{n.text}{page === n.id && <span className="nav-dot" />}</button>)}</nav>
       <div className="sidebar-bottom"><div className="local-card"><span className={`dot ${connected ? 'green' : 'gray'}`} /><span>{t("console.local_workspace")}<small>{serverClosed ? t("console.backend_shut_down") : closing ? t("console.shutting_down_the_service") : connected ? t("console.python_backend_connected") : t("console.waiting_for_the_backend")}</small></span><Cpu size={17} /></div><div className="sidebar-version"><span>TH06NC AI</span><span>v1.0</span></div></div></aside>
     <div className="main-shell"><header className="topbar"><button className="icon-btn mobile-menu" aria-label={t("console.show_navigation")} onClick={() => setSidebar(!sidebar)}><Menu size={19} /></button><div className="breadcrumb"><span>{t("console.workspace")}</span><ChevronRight size={13} /><strong>{display(TITLES[page])}</strong></div><div className="topbar-right"><select className="language-select" aria-label={t("console.language")} value={locale} onChange={e => setLocale(e.target.value as Locale)}><option value="en">English</option><option value="zh-CN">{t("console.language_chinese")}</option></select>{state?.busy && !serverClosed && <button className="btn danger header-stop" aria-label={t("console.emergency_stop")} disabled={!controls(state, connected, pending).stop} onClick={() => void command('session/stop')}><Square size={11} fill="currentColor" /><span className="header-stop-label">{t("console.emergency_stop")}</span><kbd>F8</kbd></button>}<span className={`connection ${connected ? '' : 'offline'}`}><span className={`dot ${connected ? 'green' : 'gray'}`} />{serverClosed ? t("console.backend_shut_down") : closing ? t("console.shutting_down") : connected ? t("console.connected_locally") : t("console.disconnected")}</span><span className="topbar-separator" /><button className="icon-btn theme-btn" aria-label={light ? t("console.switch_to_dark_theme") : t("console.switch_to_light_theme")} onClick={() => setLight(!light)}>{light ? <Moon size={17} /> : <Sun size={17} />}</button><button className="btn secondary server-close" aria-label={t("console.shut_down")} title={t("console.finish_the_session_and_shut_down_the")} disabled={!connected || pending || closing || serverClosed} onClick={() => state?.busy ? setExitDialog(true) : void closeServer()}><Power size={15} /><span>{t("console.shut_down")}</span></button></div></header>
-      <main>{serverClosed || closing ? <div className="connecting lifecycle-status" role="status">{serverClosed ? <Power size={32} /> : <LoaderCircle size={32} className="spin" />}<h1>{serverClosed ? t("console.backend_shut_down") : t("console.finishing_the_session_and_shutting_down")}</h1><p>{serverClosed ? t("console.open_with_launcher") : t("console.wait_while_training_saves_gpu_monitoring_continues")}</p><small>{serverClosed ? t("console.you_can_close_this_page_now") : t("console.press_f8_in_an_emergency")}</small></div> : state ? <>{state.shutdown?.state === 'error' && <div className="banner warning" role="alert"><Info size={16} /><span>{display(state.shutdown.message)}</span></div>}{page === 'train' ? <Training state={state} connected={connected} pending={pending} command={command} navigate={navigate} /> : page === 'models' ? <Models state={state} connected={connected} pending={pending} command={command} navigate={navigate} /> : <Diagnostics state={state} connected={connected} pending={pending} command={command} />}</> : <div className="connecting"><Logo /><h1>{t("console.connecting_to_the_training_backend")}</h1><p>{t("console.reading_models_and_session_status_training_starts")}</p><LoaderCircle size={21} className="spin" /><small>{t("console.open_with_launcher")}</small></div>}</main>
+      <main>{serverClosed || closing ? <div className="connecting lifecycle-status" role="status">{serverClosed ? <Power size={32} /> : <LoaderCircle size={32} className="spin" />}<h1>{serverClosed ? t("console.backend_shut_down") : t("console.finishing_the_session_and_shutting_down")}</h1><p>{serverClosed ? t("console.open_with_launcher") : t("console.wait_while_training_saves_gpu_monitoring_continues")}</p><small>{serverClosed ? t("console.you_can_close_this_page_now") : t("console.press_f8_in_an_emergency")}</small></div> : state ? <>{state.shutdown?.state === 'error' && <div className="banner warning" role="alert"><Info size={16} /><span>{display(state.shutdown.message)}</span></div>}{page === 'train' ? <Training state={state} connected={connected} pending={pending} command={command} navigate={navigate} /> : page === 'models' ? <Models state={state} connected={connected} pending={pending} command={command} navigate={navigate} /> : page === 'performance' ? <Performance state={state} connected={connected} diagnostics={openDiagnostics} /> : <Diagnostics state={state} connected={connected} pending={pending} command={command} />}</> : <div className="connecting"><Logo /><h1>{t("console.connecting_to_the_training_backend")}</h1><p>{t("console.reading_models_and_session_status_training_starts")}</p><LoaderCircle size={21} className="spin" /><small>{t("console.open_with_launcher")}</small></div>}</main>
       <footer><div><span className="footer-dot" />{serverClosed ? t("console.service_stopped") : state?.active ? t("console.background_session_running_independently") : t("console.all_computation_runs_locally")}<span className="footer-divider">/</span><span>{serverClosed ? t("console.releasing_the_local_port") : t("console.use_shut_down_to_exit_the_backend")}</span></div><div><kbd>F7</kbd>{t("console.pause_resume")}<kbd>F8</kbd>{t("console.emergency_stop")}</div></footer>
     </div>
     {exitDialog && <Dialog title={t("console.finish_session_and_shut_down")} close={() => setExitDialog(false)}><p className="dialog-copy">{t("console.training_saves_before_the_backend_closes_playback")}</p><div className="dialog-actions"><button className="btn secondary" onClick={() => setExitDialog(false)}>{t("console.cancel")}</button><button className="btn primary" disabled={pending || !connected} onClick={() => void closeServer()}><Power size={15} />{t("console.finish_and_shut_down")}</button></div></Dialog>}

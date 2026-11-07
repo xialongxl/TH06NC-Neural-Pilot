@@ -17,17 +17,21 @@ def decode_lasers(raw,width,height):
     if len(raw)!=LASER_CAPACITY*LASER_STRIDE:raise ValueError('laser pool shape mismatch')
     data=np.frombuffer(raw,LASER_DTYPE)
     valid=(data['active']!=0)&(data['state']<=1)
+    if not valid.any():
+        return np.empty((0, 8), np.float32)
     for name in ('x','y','start','end','angle','width'):valid &= np.isfinite(data[name])
     valid&=(data['end']>=data['start'])&(data['start']>=0)&(data['width']>0)&(data['width']<=512)
     # Native caller passes (length, nominal_width*0.5); the hit routine halves
     # both dimensions again. Do not mistake sprite width for collision width.
     half_width=data['width']*.25
     distance=(data['start']+data['end'])*.5
-    cx=data['x']+np.cos(data['angle'])*distance
-    cy=data['y']+np.sin(data['angle'])*distance
+    cosine, sine = np.cos(data['angle']), np.sin(data['angle'])
+    cx=data['x']+cosine*distance
+    cy=data['y']+sine*distance
     half_len=(data['end']-data['start'])*.5
-    hx=np.abs(np.cos(data['angle']))*half_len+np.abs(np.sin(data['angle']))*half_width
-    hy=np.abs(np.sin(data['angle']))*half_len+np.abs(np.cos(data['angle']))*half_width
+    abs_cosine, abs_sine = np.abs(cosine), np.abs(sine)
+    hx=abs_cosine*half_len+abs_sine*half_width
+    hy=abs_sine*half_len+abs_cosine*half_width
     valid&=(cx+hx>=0)&(cx-hx<=width)&(cy+hy>=0)&(cy-hy<=height)
     slots=np.flatnonzero(valid)
     return np.column_stack((slots,data['x'][valid],data['y'][valid],data['start'][valid],data['end'][valid],

@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .config import DEFAULT_CONSOLE_PORT, DEFAULT_PREVIEW_PORT, ROOT, load_config
+from .config import DEFAULT_CONSOLE_PORT, DEFAULT_PREVIEW_PORT, PROFILE_KINDS, ROOT, load_config
 
 
 def main():
@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--character',choices=['reimu_a','reimu_b','marisa_a','marisa_b'])
     parser.add_argument('--game-mode',choices=['story','practice'])
     parser.add_argument('--stage',type=int,help=ui_text('backend.starting_stage_for_practice_1_6'))
-    parser.add_argument('--profile-kind',choices=['inference','latency'],default='inference',help=ui_text('backend.offline_inference_or_read_only_control_profiling'))
+    parser.add_argument('--profile-kind',choices=PROFILE_KINDS,default='inference',help=ui_text('backend.offline_inference_or_read_only_control_profiling'))
     parser.add_argument('--profile-wait-combat',action='store_true',help=ui_text('backend.wait_for_the_game_to_be_manually'))
     parser.add_argument("--preview", action="store_true", help=ui_text('backend.preview_the_console_without_connecting_to_the'))
     parser.add_argument("--port", type=int, default=DEFAULT_CONSOLE_PORT, help=ui_text('backend.local_web_console_port'))

@@ -502,7 +502,7 @@ main {
   color:var(--text);
   margin-left:8px;
   font-variant-numeric:tabular-nums}
-.session-progress i,.memory-label i {
+.session-progress i {
   font-style:normal;
   color:var(--faint)}
 .track {
@@ -605,41 +605,6 @@ main {
   font-size:11px;
   color:var(--faint);
   margin:0 21px 22px}
-.gpu-substats {
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  padding:0 21px;
-  gap:5px}
-.gpu-substats>div {
-  border-right:1px solid var(--line)}
-.gpu-substats>div:last-child {
-  border:0;
-  padding-left:7px}
-.gpu-substats>div:nth-child(2) {
-  padding-left:7px}
-.gpu-substats span {
-  display:block;
-  font-size:11px;
-  color:var(--muted);
-  margin-bottom:8px}
-.gpu-substats strong {
-  display:block;
-  font-size:16px;
-  font-weight:500;
-  letter-spacing:-.4px;
-  font-variant-numeric:tabular-nums}
-.gpu-substats small {
-  font-size:12px;
-  font-weight:400;
-  color:var(--muted)}
-.memory-label {
-  display:flex;
-  justify-content:space-between;
-  font-size:11px;
-  margin:23px 21px 9px;
-  color:var(--muted)}
-.guard-panel>.track {
-  margin:0 21px}
 .guard-rules {
   display:flex;
   flex-direction:column;
@@ -670,32 +635,6 @@ main {
   align-items:center;
   gap:6px;
   white-space:nowrap}
-.telemetry-panel {
-  flex:1;
-  min-height:240px}
-.telemetry-top {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin:18px 21px 4px;
-  font-size:11px;
-  color:var(--faint);
-  gap:9px}
-.telemetry-top>div {
-  display:flex;
-  align-items:center;
-  gap:6px;
-  color:var(--muted)}
-.legend-dot {
-  width:5px;
-  height:5px;
-  border-radius:50%;
-  background:var(--accent)}
-.telemetry-value {
-  font-size:14px;
-  color:var(--text);
-  margin-left:5px;
-  font-variant-numeric:tabular-nums}
 .chart {
   position:relative;
   margin:0 17px 13px 20px;
@@ -1306,8 +1245,6 @@ to {
   height:64px}
 .chart {
   height:177px}
-.telemetry-panel {
-  min-height:270px}
 .guard-rules {
   gap:10px}
 .guard-panel {
@@ -1407,8 +1344,6 @@ nav button {
 .guard-panel>.temperature {
   font-size:42px;
   margin-top:15px}
-.gpu-substats {
-  margin-top:16px}
 .guard-device {
   margin-bottom:10px}
 .guard-rules {
@@ -1570,26 +1505,6 @@ main {
   margin:0 13px 14px;
   font-size:10px;
   line-height:1.6}
-.gpu-substats {
-  padding:0 13px;
-  grid-template-columns:1fr 1fr;
-  gap:6px}
-.gpu-substats>div:last-child {
-  display:none}
-.gpu-substats>div:nth-child(2) {
-  border:0;
-  padding-left:3px}
-.gpu-substats span {
-  font-size:10px}
-.gpu-substats strong {
-  font-size:15px}
-.memory-label {
-  margin:20px 13px 9px;
-  font-size:10px;
-  flex-wrap:wrap;
-  gap:5px}
-.guard-panel>.track {
-  margin:0 13px}
 .guard-rules {
   margin:15px 13px;
   font-size:10px;
@@ -1670,16 +1585,10 @@ main {
   padding:10px 2px}
 .duration-options>button span {
   font-size:11px}
-.telemetry-top {
-  font-size:10px;
-  margin-left:17px;
-  margin-right:17px}
 .chart {
   height:145px;
   margin-left:13px;
   margin-right:10px}
-.telemetry-panel {
-  min-height:233px}
 .model-toolbar {
   flex-direction:column;
   gap:10px}

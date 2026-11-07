@@ -82,6 +82,8 @@ SendInput 成功只表示进入系统输入队列。主机计时、首次读到�
 
 预警激光可能让所有方向在本体探测中受阻。此时优先保留通过各切键时刻普通弹和伤害几何检查的短时脱离方向，并按含预警激光的完整预测排序。启用时记录 `planner_active_threat_priority`，路线仍是回退。
 
+窄通道可能只被预留余量封住。v9 在完整切键窗口内用已观测的判定区分这类情况，旧键经过的前缀也要通过检查。未知尺寸、未知运动和已观测的激光变化仍保留余量。预警脱离和底线优先级只能使用当前允许的候选。
+
 不要重新引入 `allowed |= nominal_at_one_time`。真实夹具：`tests/fixtures/stage5-switch-window.npz`；验证：`test_planner_timing_recovery.py`、`test_native_search.py`。
 
 ### 3.3 全场输入和可达几何排除不同

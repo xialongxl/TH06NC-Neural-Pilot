@@ -24,7 +24,9 @@ Among viable routes, scores reflect clearance, wall pressure, mobility, reachabl
 
 The Python path is a reference. `rust_sweep()` can accelerate only collision, while `plan_bytes()` handles a complete search on an owned snapshot with the GIL released. Inspect `search_backend` and `collision_backend` separately. [Native runtime](../../native/README.md)
 
-Both paths apply planner v8's final fallback ranking. If the contact probe with laser telegraphs has no candidate and the switch window was fully checked, the planner prioritizes moves that clear the short confirmed-damage probe at every switch tick and pass a separate check for enemy bodies and damaging lasers. The full forecast continues to inform risk ranking. Action logs identify this adjustment with `planner_active_threat_priority`.
+Both paths apply planner v9's final fallback ranking. When telegraphs exhaust the initial candidate set, a short probe checks bullets, enemy bodies, and damaging lasers over the complete switch window. If the forecast margins still close a narrow lane, the signed sweep clearance distinguishes observed contact rectangles from extra padding. Bullets and unverified geometry keep their margins. The short check covers both the held and the new inputs. The full forecast still informs ranking, and these routes retain the fallback label.
+
+Near a telegraph, the planner favors available moves that clear its shape sooner. Near the bottom under pressure, ranking favors space for the next move and measured exits. The planner applies these changes to the existing observation before policy sampling.
 
 [`ResourcePolicy`](../../th06ai/policy.py) applies masked mean and max pooling to per-entity encodings and fuses the player, inventory, control, planning, navigation, and context inputs. It combines learned logits with planner masks and biases. It masks bombs in NMNB and with empty stock. Survival's conditional prior affects exploration in strict rescue windows.
 

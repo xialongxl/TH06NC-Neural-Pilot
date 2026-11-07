@@ -2,6 +2,7 @@
 use crate::sweep;
 
 const INF: f32 = f32::INFINITY;
+pub(crate) const MAX_SEGMENTS: usize = 4;
 type Point = [f32; 2];
 fn norm(v: Point) -> f32 {
     (v[0] * v[0] + v[1] * v[1]).sqrt()
@@ -36,7 +37,6 @@ struct Body {
     angle: f32,
     known: bool,
 }
-#[derive(Clone)]
 struct Scene {
     circles: Vec<Circle>,
     bodies: Vec<Body>,
@@ -106,7 +106,9 @@ impl Scene {
                 .filter(|b| b.known)
                 .map(|b| Body { u: 0., ..b.clone() })
                 .collect(),
-            ..self.clone()
+            radius: self.radius,
+            low: self.low,
+            high: self.high,
         }
     }
     fn reachable(&self, start: Point, speed: f32, end: f32) -> Self {
@@ -128,7 +130,9 @@ impl Scene {
                 .filter(|b| near(b.p, b.v, norm(b.e) + self.radius, b.u))
                 .cloned()
                 .collect(),
-            ..self.clone()
+            radius: self.radius,
+            low: self.low,
+            high: self.high,
         }
     }
 }
@@ -201,7 +205,7 @@ struct Node {
     root: usize,
     last: usize,
     p: Point,
-    path: Vec<Point>,
+    path: [Point; MAX_SEGMENTS + 2], // Start, control-delay endpoint, search endpoints.
     minimum: f32,
     collision: f32,
     action_minimum: f32,
@@ -428,12 +432,14 @@ pub fn plan(
     let prefix = scene.one(start, pending, delay, 0.);
     let hold = late + 2.;
     let timing = probe(&scene, start, pending, delays, hold, fast, &velocities);
+    let mut initial_path = [start; MAX_SEGMENTS + 2];
+    initial_path[1] = prefix.end;
     let mut nodes: Vec<Node> = (0..18)
         .map(|root| Node {
             root,
             last: root,
             p: prefix.end,
-            path: vec![start, prefix.end],
+            path: initial_path,
             minimum: prefix.clear,
             collision: prefix.hit,
             action_minimum: INF,
@@ -494,7 +500,7 @@ pub fn plan(
             let mut node = parent.clone();
             node.p = s.end;
             node.last = actions[i];
-            node.path.push(s.end);
+            node.path[depth + 2] = s.end;
             node.minimum = node.minimum.min(s.clear);
             node.collision = node.collision.min(s.hit);
             node.action_minimum = node.action_minimum.min(s.clear);
@@ -567,11 +573,17 @@ pub fn plan(
     if fallback {
         if !scene.bodies.is_empty() {
             body_probe = true;
-            let mut bodies = scene.clone();
-            bodies.circles.clear();
-            for b in &mut bodies.bodies {
-                b.u = 0.25
-            }
+            let bodies = Scene {
+                circles: Vec::new(),
+                bodies: scene
+                    .bodies
+                    .iter()
+                    .map(|b| Body { u: 0.25, ..b.clone() })
+                    .collect(),
+                radius: scene.radius,
+                low: scene.low,
+                high: scene.high,
+            };
             immediate = probe(&bodies, start, pending, delays, hold, fast, &velocities).free;
         }
         let mut eligible = if scene.bodies.is_empty() {
@@ -708,7 +720,7 @@ pub fn plan(
         ]);
     }
     for n in &nodes {
-        for p in &n.path {
+        for p in &n.path[..durations.len() + 2] {
             output.extend_from_slice(p)
         }
     }

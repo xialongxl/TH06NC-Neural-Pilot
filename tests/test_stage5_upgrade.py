@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from th06ai import learning, native
+from th06ai.battle_view import BattleViewPublisher
 from th06ai.config import Config
 from th06ai.control import SamplingInterrupted, TrainingControl
 from th06ai.diagnostics import SessionDiagnostics
@@ -172,16 +173,21 @@ def test_lightweight_reader_preserves_native_pause_semantics_without_pool_reads(
     assert sample.input_bits==0x84
 
 
-def test_miss_seen_in_control_sample_survives_a_full_respawn_snapshot():
+def test_miss_seen_in_control_sample_survives_a_full_respawn_snapshot(tmp_path):
     before=frame(tick=100)
     respawn=replace(before,tick=106,state=3)
     env,_,_,_=game(before,respawn)
+    env.episode_count = 1
+    battle_view = BattleViewPublisher(tmp_path)
+    env.diagnostics = SimpleNamespace(observe_control=lambda _: None, record=lambda *_: None,
+                                      status=lambda: {}, battle_view=battle_view)
     samples=iter([replace(before,tick=102,state=0),replace(before,tick=103,state=2)])
     env.reader.read_control=lambda:control_sample(next(samples))
     env.reader.read=lambda:respawn
     _,_,died,_,info=env.step(0)
     assert died and info['death_evidence']=='control_sample' and info['death_probe_tick']==103
     assert info['reward_components']['death']<0
+    assert battle_view.miss_count == 1
 
 
 def test_stale_decision_retries_once_without_fake_samples_or_repeated_stops():

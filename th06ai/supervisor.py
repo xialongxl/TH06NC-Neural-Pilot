@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .config import Config, ROOT
+from .config import Config, PROFILE_KINDS, ROOT
 from .control import STAGE_OVERTIME_LIMIT_SECONDS, SessionStopwatch
 from .files import atomic_json, new_run, read_json, timestamp
 from .gpu import AsyncTelemetry, NvmlReader, SafetyPolicy, SafetyTrip
@@ -93,7 +93,7 @@ def run_guard(config: Config, mode: str, minutes: float | None = None,
         raise ValueError(msg('backend.unsupported_training_goal'))
     from .game_settings import parse_setup
     game_setup = parse_setup(game_setup if game_setup is not None else config.game_setup)
-    if profile_kind is not None and profile_kind not in ('inference','latency'):
+    if profile_kind is not None and profile_kind not in PROFILE_KINDS:
         raise ValueError(msg('backend.unsupported_profile_type'))
 
     suffix = hashlib.sha256(str(ROOT).encode()).hexdigest()[:16]

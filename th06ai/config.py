@@ -8,6 +8,10 @@ from .paths import DEFAULT_CONSOLE_PORT, DEFAULT_PREVIEW_PORT, ROOT
 from .planner_spec import PlanningConfig
 from .game_settings import GameSetup, parse_setup
 
+PROFILE_KINDS = ('inference', 'latency', 'readback')
+READBACK_AB_STEPS = 512
+INFERENCE_READBACK_MODES = ('auto', 'synchronous')
+
 
 @dataclass(frozen=True)
 class SafetyConfig:
@@ -43,6 +47,8 @@ class DiagnosticsConfig:
     trajectory_every_rollouts: int = 1
     compression_level: int = 1
     checkpoint_every_rollouts: int = 1
+    thread_profile_steps: int = 0
+    readback_ab: bool = False
 
     def __post_init__(self):
         if self.trajectory not in ('full', 'summary', 'off'):
@@ -53,6 +59,10 @@ class DiagnosticsConfig:
                 raise ValueError(msg('backend.0_must_be_an_integer_from_1', name))
         if type(self.compression_level) is not int or not 0 <= self.compression_level <= 9:
             raise ValueError(msg('backend.compression_level_must_be_an_integer_from'))
+        if type(self.thread_profile_steps) is not int or not 0 <= self.thread_profile_steps <= 4096:
+            raise ValueError(msg('backend.thread_profile_steps_must_be_an_integer'))
+        if type(self.readback_ab) is not bool:
+            raise ValueError(msg('backend.readback_ab_must_be_boolean'))
 
 
 @dataclass(frozen=True)
@@ -70,6 +80,7 @@ class Config:
     game_setup: GameSetup | None = None
     diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
     capture_backend: str = 'auto'
+    inference_readback: str = 'auto'
 
     @property
     def game_path(self) -> Path:
@@ -89,6 +100,8 @@ def load_config(path: Path | str | None = None) -> Config:
         raise ValueError(msg('backend.input_backend_must_be_python_rust_or'))
     if result.inference_backend not in ('auto','eager','cuda_graph'):
         raise ValueError(msg('backend.inference_backend_must_be_auto_eager_or'))
+    if result.inference_readback not in INFERENCE_READBACK_MODES:
+        raise ValueError(msg('backend.inference_readback_must_be_auto_or_synchronous'))
     if result.capture_backend not in ('auto','python','rust'):
         raise ValueError(msg('backend.capture_backend_must_be_auto_python_or'))
     if result.goal not in ('survival','nmnb'):

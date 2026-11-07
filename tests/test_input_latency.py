@@ -169,3 +169,92 @@ def test_new_latency_feedback_only_changes_the_next_observation_and_preserves_sa
     assert info['input_latency']['post_plan_to_send_ms'] == 40
     assert info['input_latency']['game_input_match_ms'] == 1
     assert (observation['planning'] == plan_copy).all()
+
+
+def test_thread_profile_joins_capture_plan_policy_and_dispatch_for_one_action(monkeypatch):
+    from th06ai.observations import ObservationBuilder
+    from th06ai.thread_profile import ThreadMark, ThreadProfile
+    from th06ai.log_rows import action_row
+    from test_sampling_timing import game
+
+    profile = ThreadProfile(1)
+    stamps = iter(ThreadMark(i * 1_000_000, 0, i * 10) for i in range(1, 9))
+    monkeypatch.setattr(profile, 'mark', lambda: next(stamps) if profile.remaining else None)
+    reader = reader_for(UpdatingGameMemory(advancing=False))
+    reader.thread_profile = profile
+    before = reader.read()
+    env, commands, _, _ = game(before, replace(before, tick=before.tick + 2))
+    env.thread_profile = profile
+    env.builder = ObservationBuilder(planner=RollingPlanner())
+    env.builder.thread_profile = profile
+    env.builder.build(before)
+    started = env.begin_policy_timing()
+    env.record_policy_timing(started, started + 1)
+    _, _, _, _, info = env.step(4)
+
+    assert commands == [{'right', 'z'}]
+    trace = action_row(info, 1)['input_thread_timing']
+    assert trace['wall_ns'] == [i * 1_000_000 for i in range(1, 9)]
+    assert trace['cycles'] == [i * 10 for i in range(1, 9)]
+    assert profile.remaining == 0 and profile.mark() is None
+
+
+def test_thread_profile_rejects_a_policy_run_on_a_replaced_observation():
+    from th06ai.thread_profile import ThreadProfile
+
+    profile = ThreadProfile(2)
+    before = replace(frame(), capture_thread_marks=(profile.mark(), profile.mark()))
+    plan = object()
+    profile.planned(before, plan, profile.mark())
+    refreshed = replace(before)
+    profile.begin_policy(refreshed)
+    profile.end_policy(refreshed)
+    assert profile.action(before, plan, profile.mark(), profile.mark()) is None
+    assert profile.remaining == 2
+
+
+def test_thread_report_ranks_the_same_slow_actions_and_preserves_missing_counters(tmp_path):
+    import csv
+    import json
+    from th06ai.thread_profile import summarize_actions
+
+    path = tmp_path / 'actions.csv'
+    first = {'version': 1, 'thread_id': 5, 'wall_ns': [i * 1_000_000 for i in range(8)],
+             'cpu_ns': [0] * 8, 'cycles': [None] * 8}
+    second = dict(first, wall_ns=[2_000_000_000 + i * 2_000_000 for i in range(8)], cpu_ns=[50_000_000] * 8,
+                  cycles=[100 + 10 * i for i in range(8)])
+    with path.open('w', encoding='utf-8', newline='') as stream:
+        writer = csv.writer(stream)
+        writer.writerow(['input_thread_timing'])
+        writer.writerows([[json.dumps(first)], ['broken'], [json.dumps(second)], ['']])
+
+    report = summarize_actions(path)
+    assert (report['actions'], report['profiled_actions'], report['discarded'], report['slowest_actions']) == (4, 2, 1, 1)
+    assert report['window'] == {'wall_ms': 2014., 'thread_cpu_ms': 50.}
+    assert report['capture_to_dispatch']['slowest_mean_wall_ms'] == 14.
+    assert report['phases']['prepare']['thread_cycles']['samples'] == 1
+    assert report['phases']['prepare']['slowest_mean_thread_cycles'] == 10
+
+
+def test_readback_report_pairs_only_adjacent_same_scene_actions(tmp_path):
+    import csv
+    import json
+    from th06ai.thread_profile import summarize_readback_actions
+
+    path = tmp_path / 'actions.csv'
+    with path.open('w', encoding='utf-8', newline='') as stream:
+        writer = csv.writer(stream)
+        writer.writerow(['steps', 'decision_stage_id', 'game_phase', 'input_observation_to_send_ms', 'inference'])
+        for pair, phases in enumerate((('combat', 'combat'), ('combat', 'boss'), ('boss',))):
+            for position, phase in enumerate(phases):
+                method = ('synchronous', 'blocking_event')[position]
+                inference = {'readback_ab': {'pair': pair, 'position': position, 'method': method},
+                             'result_wait_copy_ms': 5 - position}
+                writer.writerow([10 + pair * 2 + position, 1, phase, 12 + position, json.dumps(inference)])
+
+    report = summarize_readback_actions(path)
+    assert (report['tagged_actions'], report['matched_pairs'], report['excluded_pairs']) == (5, 1, 2)
+    assert report['scenes'] == {'1/combat': 1}
+    assert report['paired_delta_event_minus_sync']['readback_ms']['mean'] == -1
+    assert report['paired_delta_event_minus_sync']['observation_to_send_ms']['p95'] == 1
+    assert report['methods']['blocking_event']['policy_thread_cycles'] is None

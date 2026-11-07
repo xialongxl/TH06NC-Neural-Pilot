@@ -10,6 +10,7 @@ import pytest
 import torch
 
 from th06ai import learning, native
+from th06ai.battle_view import BattleViewPublisher
 from th06ai.control import SamplingInterrupted, TrainingControl
 from th06ai.game_settings import (GameSetup, parse_setup, decode_identity, context_vector,
                                   CONTEXT_FEATURES, menu_key, observed_settings)
@@ -344,13 +345,18 @@ def test_practice_sampler_recognizes_menu_after_fast_probe_or_user_resume(practi
     assert actions == []
 
 
-def test_practice_return_requires_menu_evidence_and_preserves_observed_miss(practice_return):
+def test_practice_return_requires_menu_evidence_and_preserves_observed_miss(practice_return, tmp_path):
     env, actions, _, menu = practice_return
+    env.episode_count = 1
+    battle_view = BattleViewPublisher(tmp_path)
+    env.diagnostics = SimpleNamespace(event=lambda **_: None, battle_view=battle_view)
     env._practice_result(replace(menu, phase_evidence={}))
+    assert battle_view.miss_count == 0
     with pytest.raises(SamplingInterrupted) as error:
         env._practice_result(menu, death_probe_tick=menu.tick-1)
     assert error.value.episode_end['episode_end_reason'] == 'death'
     assert error.value.episode_end['died'] and actions == []
+    assert battle_view.miss_count == 1
 
 
 def test_session_passes_an_immutable_setup_and_rejects_bad_combinations(setup):

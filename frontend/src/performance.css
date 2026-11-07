@@ -1,0 +1,112 @@
+.performance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.performance-card {
+  --trend-color: var(--accent);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.performance-cpu {
+  --trend-color: var(--gold);
+}
+
+.performance-reading {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 18px 20px 12px;
+}
+
+.performance-reading > div + div {
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+
+.performance-reading span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.performance-reading strong {
+  display: block;
+  margin-top: 7px;
+  font-size: clamp(25px, 3.2vw, 41px);
+  line-height: 1.15;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.04em;
+}
+
+.performance-reading > div:first-child strong {
+  color: var(--trend-color);
+}
+
+.performance-reading small {
+  color: var(--muted);
+  font-size: .45em;
+  margin-left: 4px;
+  letter-spacing: normal;
+}
+
+.performance-details {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 13px 14px;
+  margin: 0 20px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--inset);
+}
+
+.performance-details dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.performance-details dd {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.performance-caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 12px;
+  margin: auto 20px 0;
+  padding: 13px 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.guard-panel > .guard-performance-link {
+  display: flex;
+  width: fit-content;
+  margin: 0 21px 13px;
+}
+
+@media (max-width: 1040px) {
+  .performance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .performance-reading, .performance-details, .performance-caption {
+    margin-left: 15px;
+    margin-right: 15px;
+  }
+  .guard-panel > .guard-performance-link {
+    margin-left: 13px;
+  }
+}

@@ -10,6 +10,7 @@ from .config import ROOT
 from .files import atomic_json
 from .inference import PolicyRunner
 from .learning import load_model
+from .thread_profile import thread_cycle_reader
 
 
 def profile_inference(config, run_dir, source, status, lease, repeats=96):
@@ -35,7 +36,7 @@ def profile_inference(config, run_dir, source, status, lease, repeats=96):
         observation['control'][18]=0
         observations.append(observation)
     eager=PolicyRunner(model.policy,'eager')
-    fast=PolicyRunner(model.policy,config.inference_backend)
+    fast=PolicyRunner(model.policy,config.inference_backend,readback=config.inference_readback)
     eager.warmup(observations[0],lease)
     fast.warmup(observations[0],lease)
     # PPO uses in-place optimizer updates. Verify captured inference reads the
@@ -100,4 +101,107 @@ def profile_inference(config, run_dir, source, status, lease, repeats=96):
     atomic_json(Path(run_dir)/'inference_profile.json',report)
     if not unchanged:raise RuntimeError(msg('backend.the_source_checkpoint_changed_during_the_benchmark'))
     status(phase=msg('backend.offline_inference_benchmark_complete'),message=msg('backend.the_benchmark_left_model_files_intact_and'),inference=summaries['optimized'])
+    return report
+
+
+def _readback_observations(spaces, paths, limit=64):
+    fields = {name: 'obs_' + name for name in spaces}
+    for path in paths:
+        with np.load(path, allow_pickle=False) as trace:
+            if 'steps' not in trace or any(key not in trace for key in fields.values()):
+                continue
+            steps = trace['steps']
+            if steps.ndim != 1 or not len(steps):
+                continue
+            indices = np.linspace(0, len(steps) - 1, min(limit, len(steps)), dtype=int)
+            columns = {}
+            for name, key in fields.items():
+                values = trace[key]
+                if values.shape != (len(steps), 1, *spaces[name].shape):
+                    break
+                columns[name] = values[indices, 0]
+            if len(columns) == len(fields):
+                return path, [(int(steps[index]), {name: values[i] for name, values in columns.items()})
+                              for i, index in enumerate(indices)]
+    raise RuntimeError(msg('backend.readback_requires_matching_full_observations'))
+
+
+def _verify_readback_outputs(first, second, step):
+    if not (np.array_equal(first.actions, second.actions) and torch.equal(first.values, second.values)
+            and torch.equal(first.log_probs, second.log_probs) and first.bomb_probability == second.bomb_probability):
+        raise RuntimeError(msg('backend.readback_outputs_differ_at_step_0', step))
+
+
+def _summarize_readback(rows):
+    summary = {}
+    for key in ('wall_ms', 'prepare_ms', 'submit_ms', 'result_wait_copy_ms', 'gpu_stream_ms',
+                'thread_cycles', 'readback_thread_cycles'):
+        values = [row[key] for row in rows if row[key] is not None]
+        summary[key] = ({'mean': float(np.mean(values)),
+                         **{f'p{q}': float(np.percentile(values, q)) for q in (50, 95, 99)}} if values else None)
+    return summary
+
+
+def profile_readback(config, run_dir, source, status, lease, repeats=512):
+    """Compare two host readbacks on the same protected CUDA graph and inputs."""
+    if config.device != 'cuda':
+        raise RuntimeError(msg('backend.cuda_readback_requires_a_cuda_model'))
+    path = Path(source or ROOT / 'models/latest.zip').resolve()
+    if not path.is_relative_to((ROOT / 'models').resolve()):
+        raise RuntimeError(msg('backend.only_project_generated_models_within_the_models'))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    status(phase=msg('backend.cuda_readback_benchmark'), profile_pairs=0)
+    lease()
+    model = load_model(path, None, config.device)
+    traces = sorted((ROOT / 'runs').glob('*/observations-*.npz'), key=lambda p: p.stat().st_mtime, reverse=True)
+    trace, observations = _readback_observations(model.observation_space.spaces, traces)
+    runner = PolicyRunner(model.policy, 'cuda_graph', profile=True, readback=config.inference_readback)
+    runner.warmup(observations[0][1], lease)
+    completion = torch.cuda.Event(blocking=True)
+    methods = (('synchronous', None), ('blocking_event', completion))
+    expected_readback = 'blocking_event' if config.inference_readback == 'auto' else 'synchronous'
+    for step, observation in observations:
+        first, second = (runner.predict(observation, True, lease, readback_event=event) for _, event in methods)
+        _verify_readback_outputs(first, second, step)
+        configured = runner.predict(observation, True, lease)
+        if configured.timing['readback'] != expected_readback:
+            raise RuntimeError(msg('backend.configured_readback_mismatch', expected_readback, configured.timing['readback']))
+        _verify_readback_outputs(first, configured, step)
+
+    read_cycles = thread_cycle_reader()
+    trials = {name: [] for name, _ in methods}
+    for index in range(repeats):
+        step, observation = observations[index % len(observations)]
+        lease()
+        rng = torch.cuda.get_rng_state(model.device)
+        pair = []
+        for name, event in methods if index % 2 == 0 else reversed(methods):
+            # Restore the same generator offset outside both measured intervals.
+            torch.cuda.set_rng_state(rng, model.device)
+            cpu_start = read_cycles() if read_cycles is not None else None
+            start = time.perf_counter_ns()
+            decision = runner.predict(observation, False, lease, readback_event=event)
+            wall_ms = (time.perf_counter_ns() - start) / 1e6
+            cpu_end = read_cycles() if read_cycles is not None else None
+            cpu = cpu_end - cpu_start if cpu_start is not None and cpu_end is not None and cpu_end >= cpu_start else None
+            trials[name].append({'step': step, 'wall_ms': wall_ms, 'thread_cycles': cpu, **decision.timing})
+            pair.append(decision)
+        _verify_readback_outputs(*pair, step)
+        if (index + 1) % 32 == 0:
+            status(profile_pairs=index + 1)
+
+    unchanged = hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    report = {'mode': 'cuda_readback', 'game_opened': False, 'keys_sent': False, 'weights_updated': False,
+              'device': str(model.device), 'torch': torch.__version__, 'engine': runner.engine,
+              'source': str(path), 'source_sha256': digest, 'source_unchanged': unchanged,
+              'steps': model.num_timesteps, 'trace': str(trace), 'observations': len(observations),
+              'deterministic_pairs_verified': len(observations), 'sampled_pairs_verified': repeats,
+              'configured_readback': runner.diagnostics()['readback'],
+              'configured_readback_outputs_verified': len(observations),
+              'summaries': {name: _summarize_readback(rows) for name, rows in trials.items()},
+              'trials': trials}
+    atomic_json(Path(run_dir) / 'readback_profile.json', report)
+    if not unchanged:
+        raise RuntimeError(msg('backend.the_source_checkpoint_changed_during_the_benchmark'))
+    status(phase=msg('backend.offline_inference_benchmark_complete'), profile_pairs=repeats)
     return report

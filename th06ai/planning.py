@@ -176,8 +176,7 @@ class RollingPlanner:
 
     def _rank_warning_fallback(self, result, start, pending, low, high, bodies, damaging):
         diagnostics = result.diagnostics
-        if (not diagnostics['all_routes_risky'] or not diagnostics['timing_interval_complete']
-                or diagnostics['immediate_contact_free_roots'] != 0 or damaging.all()):
+        if diagnostics['immediate_contact_free_roots'] != 0 or damaging.all():
             return result
 
         # The nominal probe covers known damaging hazards at every tested
@@ -195,34 +194,131 @@ class RollingPlanner:
                 diagnostics['timing_probe_hold_ticks'], low, high, empty, empty, np.empty(0), np.empty(0), live)
             nominal &= live_free
 
+        return self._restrict_fallback(result, nominal, 'active_threat_priority')
+
+    @staticmethod
+    def _rank_candidates(result, allowed, preference=None, **evidence):
+        features = result.features.copy()
+        features[:, 1] = allowed
+        best = result.diagnostics['suggested_movement']
+        if preference is not None or not allowed[best]:
+            scores = (features[:, 6] * (64 / PLAN_LOGIT_SCALE) if preference is None
+                      else features[:, 7] + preference)
+            best = int(np.argmax(np.where(allowed, scores, -np.inf)))
+            features[:, 7] = np.clip(scores - scores[best], -1, 0)
+        nav = result.navigation
+        decision = result.decision.copy()
+        exit_fraction = float(nav[best, NAV_FIELDS.index('exit_fraction')])
+        decision[DECISION_FIELDS.index('safe_exit_fraction')] = exit_fraction
+        diagnostics = {**result.diagnostics, **evidence, 'allowed_roots': int(allowed.sum()),
+                       'suggested_movement': best,
+                       'wall_space': float(nav[best, NAV_FIELDS.index('wall_space')]),
+                       'exit_fraction': exit_fraction,
+                       'exit_measured': bool(nav[best, NAV_FIELDS.index('exit_measured')]),
+                       'estimated_clearance': float(result.clearances[best]) if np.isfinite(result.clearances[best]) else None,
+                       'predicted_collision_tick': float(result.collision_times[best]) if np.isfinite(result.collision_times[best]) else None}
+        return replace(result, features=features, decision=decision, diagnostics=diagnostics)
+
+    def _restrict_fallback(self, result, contact_free, reason):
         old_allowed = result.features[:, 1] > 0
-        if nominal.any() and (old_allowed & ~nominal).any():
-            allowed = old_allowed & nominal
-            if not allowed.any():
-                # Keep the full forecast, including warning beams, for ranking
-                # when the old fallback has no direction left in this subset.
-                horizon = diagnostics['horizon_ticks']
-                hit = nav[:, NAV_FIELDS.index('action_collision')] * horizon
-                allowed = nominal & (hit >= hit[nominal].max() - .5)
-                clear = nav[:, NAV_FIELDS.index('action_clearance')] * 64
-                allowed &= clear >= clear[allowed].max() - 1.
-            features = result.features.copy()
-            features[:, 1] = allowed
-            best = diagnostics['suggested_movement']
-            if not allowed[best]:
-                utility = features[:, 6]
-                best = int(np.argmax(np.where(allowed, utility, -np.inf)))
-                features[:, 7] = np.clip((utility - utility[best]) * (64 / PLAN_LOGIT_SCALE), -1, 0)
-            decision = result.decision.copy()
-            decision[DECISION_FIELDS.index('safe_exit_fraction')] = nav[best, NAV_FIELDS.index('exit_fraction')]
-            diagnostics = {**diagnostics, 'active_threat_priority': True, 'allowed_roots': int(allowed.sum()),
-                           'suggested_movement': best,
-                           'wall_space': float(nav[best, NAV_FIELDS.index('wall_space')]),
-                           'exit_fraction': float(nav[best, NAV_FIELDS.index('exit_fraction')]),
-                           'exit_measured': bool(nav[best, NAV_FIELDS.index('exit_measured')]),
-                           'estimated_clearance': float(result.clearances[best]) if np.isfinite(result.clearances[best]) else None,
-                           'predicted_collision_tick': float(result.collision_times[best]) if np.isfinite(result.collision_times[best]) else None}
-            result = replace(result, features=features, decision=decision, diagnostics=diagnostics)
+        if not contact_free.any() or not (old_allowed & ~contact_free).any():
+            return result
+        allowed = old_allowed & contact_free
+        if not allowed.any():
+            # Among short escapes, retain the full forecast as a tiebreaker.
+            nav = result.navigation
+            hit = nav[:, NAV_FIELDS.index('action_collision')] * result.diagnostics['horizon_ticks']
+            allowed = contact_free & (hit >= hit[contact_free].max() - .5)
+            clear = nav[:, NAV_FIELDS.index('action_clearance')] * 64
+            allowed &= clear >= clear[allowed].max() - 1.
+        return self._rank_candidates(result, allowed, **{reason: True})
+
+    def _rank_contact_fallback(self, result, start, pending, low, high, bullets, velocity,
+                               radii, uncertainty, bodies, damaging):
+        diagnostics = result.diagnostics
+        if (diagnostics['short_escape_priority'] or diagnostics.get('active_threat_priority')
+                or (not len(bodies.positions) and diagnostics['timing_contact_free_roots'] == 0)):
+            return result
+        live = bodies.subset(damaging)
+        trusted = live.known_geometry & live.known_motion
+        # Recover trusted rectangles from the padded gap. Bullet radii are a
+        # circular approximation, so retain their margin as well as margins
+        # for unknown rectangles and observed beam rotation or growth.
+        live = replace(live, half_extents=live.half_extents + COLLISION_PADDING * (~trusted)[:, None],
+                       uncertainty=np.where(trusted, np.maximum(live.uncertainty - SELF_SPEED_ERROR, 0.),
+                                            live.uncertainty))
+        contact_free, _, _, _ = self._timing_probe(start, pending, diagnostics['tested_switch_delays'],
+                diagnostics['timing_probe_hold_ticks'], low, high, bullets, velocity,
+                radii + COLLISION_PADDING, uncertainty, live,
+                clearance_floor=-COLLISION_PADDING + 1e-4)
+        contact_free &= result.features[:, 4] == 0
+        return self._restrict_fallback(result, contact_free, 'contact_priority')
+
+    @staticmethod
+    def _warning_clearance(points, ticks, warnings):
+        relative = points[..., None, :] - (warnings.positions + ticks[..., None, None] * warnings.velocity)
+        c, s = np.cos(warnings.angles), np.sin(warnings.angles)
+        x, y = relative[..., 0], relative[..., 1]
+        return np.maximum(np.abs(x*c+y*s)-warnings.half_extents[:, 0],
+                          np.abs(-x*s+y*c)-warnings.half_extents[:, 1]) - warnings.player_radius
+
+    def _prefer_warning_exit(self, result, start, pending, low, high, bodies, damaging):
+        diagnostics = result.diagnostics
+        short_escape = (not diagnostics['all_routes_risky'] or diagnostics['short_escape_priority']
+                        or diagnostics.get('active_threat_priority') or diagnostics.get('contact_priority'))
+        if not short_escape or damaging.all():
+            return result
+        warnings = bodies.subset(~damaging)
+        initial = self._warning_clearance(start, np.array(0.), warnings)
+        nearby = initial <= CLEARANCE / 2
+        if not nearby.any():
+            return result
+        warnings = warnings.subset(nearby)
+        delays = np.asarray(diagnostics['tested_switch_delays'], np.float32)
+        prefix = np.clip(start + pending*delays[:, None], low, high)
+        # Compare how soon the first command leaves nearby telegraphs across
+        # the whole switch interval. Full search still sees every warning.
+        after = np.array([2., min(4., diagnostics['timing_probe_hold_ticks'])], np.float32)
+        points = np.clip(prefix[:, None, None, :] + self.velocities[None, :, None, :]*after[None, None, :, None],
+                         low, high)
+        gaps = self._warning_clearance(points, (delays[:, None, None]+after[None, None, :]), warnings)
+        earliest, later = gaps.min(axis=(0, 3)).T
+        allowed = result.features[:, 1] > 0
+        exits = allowed & (later > 0.)
+        if initial.min() <= 0. and exits.any():
+            allowed = exits
+        preference = np.clip((earliest + later)*.5/CLEARANCE, -1., 1.) * .25
+        if np.array_equal(allowed, result.features[:, 1] > 0) and np.ptp(preference[allowed]) < 1e-5:
+            return result
+        return self._rank_candidates(result, allowed, preference, warning_exit_priority=True)
+
+    def _prefer_bottom_exit(self, result, start, high):
+        space = high[1] - start[1]
+        if space >= 24.:
+            return result
+        nav = result.navigation
+        if nav[0, NAV_FIELDS.index('action_clearance')] * 64 >= CLEARANCE:
+            return result
+        # Under pressure at the bottom, preserve room to move on the next
+        # command. Resource/aim preferences still apply among allowed moves.
+        rise = np.clip((result.paths[:, 1, 1] - result.paths[:, 2, 1])/(4*self.fast_speed), -1., 1.)
+        exits = nav[:, NAV_FIELDS.index('exit_fraction')]*nav[:, NAV_FIELDS.index('exit_measured')]
+        preference = .15 * (1. - space/24.) * (rise + .25*exits)
+        allowed = result.features[:, 1] > 0
+        if np.ptp(preference[allowed]) < 1e-5:
+            return result
+        return self._rank_candidates(result, allowed, preference, bottom_escape_priority=True)
+
+    def _finish_plan(self, result, start, pending, low, high, bullets, velocity,
+                     radii, uncertainty, bodies, damaging):
+        diagnostics = result.diagnostics
+        if diagnostics['timing_interval_complete']:
+            if diagnostics['all_routes_risky']:
+                result = self._rank_warning_fallback(result, start, pending, low, high, bodies, damaging)
+                result = self._rank_contact_fallback(result, start, pending, low, high, bullets, velocity,
+                                                     radii, uncertainty, bodies, damaging)
+            result = self._prefer_warning_exit(result, start, pending, low, high, bodies, damaging)
+        result = self._prefer_bottom_exit(result, start, high)
         completed = clock_ns()
         self.last_elapsed_ms = (completed - result.started_ns) / 1e6
         return replace(result, completed_ns=completed,
@@ -256,7 +352,7 @@ class RollingPlanner:
             self.switch_times.add(timing.get('post_plan_to_input_ms') or tail+confirmation)
 
     def _timing_probe(self, start, pending, delays, hold_ticks, low, high,
-                      bullets, velocity, radii, uncertainty, bodies):
+                      bullets, velocity, radii, uncertainty, bodies, *, clearance_floor=None):
         # Timing probes cover only the first held command. The full search
         # still sees every horizon-relevant obstacle; don't repeat its whole
         # 32-frame obstacle set for these much shorter checks.
@@ -282,14 +378,26 @@ class RollingPlanner:
             return free, hits, action_hits, action_clearance
         delays = np.asarray(sorted(set(delays)), np.float32)
         count = len(delays)
-        prefix, _, prefix_hit, _ = self._sweep(np.repeat(start[None], count, axis=0),
-                np.repeat(pending[None], count, axis=0), delays, 0,
+        # The clamped switch position is known analytically. Batch both
+        # intervals in one sweep so Rust only receives one owned snapshot.
+        prefix = np.clip(start + delays[:, None]*pending, low, high)
+        switches = np.repeat(delays, PLAN_MOVEMENTS)
+        starts = np.concatenate((np.broadcast_to(start, (count, 2)), np.repeat(prefix, PLAN_MOVEMENTS, axis=0)))
+        velocities = np.concatenate((np.broadcast_to(pending, (count, 2)), np.tile(self.velocities, (count, 1))))
+        durations = np.concatenate((delays, np.full(len(switches), hold_ticks, np.float32)))
+        ticks = np.concatenate((np.zeros(count, np.float32), switches))
+        _, gaps, hits, _ = self._sweep(starts, velocities, durations, ticks,
                 low, high, bullets, velocity, radii, uncertainty, bodies=bodies)
-        _, clearance, hit, _ = self._sweep(np.repeat(prefix, 18, axis=0), np.tile(self.velocities, (count, 1)),
-                hold_ticks, np.repeat(delays, 18), low, high, bullets, velocity, radii, uncertainty, bodies=bodies)
-        hit, clearance = hit.reshape(count, 18), clearance.reshape(count, 18)
-        full_hit = np.minimum(prefix_hit[:, None], hit)
-        return np.isinf(full_hit).all(axis=0), full_hit.min(axis=0), hit.min(axis=0), clearance.min(axis=0)
+        hit = hits[count:].reshape(count, PLAN_MOVEMENTS)
+        clearance = gaps[count:].reshape(count, PLAN_MOVEMENTS)
+        full_hit = np.minimum(hits[:count, None], hit)
+        if clearance_floor is None:
+            free = np.isinf(full_hit).all(axis=0)
+        else:
+            # Only the free mask uses the alternate margin. Hit times below
+            # still describe the regular padded collision envelope.
+            free = (np.minimum(gaps[:count, None], clearance) > clearance_floor).all(axis=0)
+        return free, full_hit.min(axis=0), hit.min(axis=0), clearance.min(axis=0)
 
     @staticmethod
     def _switch_delays(early, late):
@@ -469,6 +577,7 @@ class RollingPlanner:
         bullets = frame.bullets[relevant, 1:3].astype(np.float32)
         velocity = state.velocity[relevant]
         radii, uncertainty = state.radius[relevant].astype(np.float32), uncertainty[relevant]
+        known = state.known_motion[relevant] & state.known_geometry[relevant]
         all_bodies = visible_body_state(frame, previous)
         body_relative = all_bodies.positions-start
         closest_body_tick = np.clip(-np.sum(body_relative*all_bodies.velocity, axis=1)/
@@ -497,7 +606,6 @@ class RollingPlanner:
         branches = int(np.clip((node_budget-18)/(18*beam*max(1, future_steps)), 3, 18))
         if self.search_backend=='rust':
             from .acceleration import rust_plan
-            known=state.known_motion[relevant] & state.known_geometry[relevant]
             body_known=bodies.known_motion & bodies.known_geometry & damaging
             pending=self.velocities[int(np.argmax(control[:18]))] if control[19]>.5 else np.asarray(control[20:22])*16
             items,weights,target=self._goals(frame,previous)
@@ -538,7 +646,8 @@ class RollingPlanner:
                 'predicted_collision_tick':float(collision[best]) if np.isfinite(collision[best]) else None,'elapsed_ms':round(elapsed_ms,3)}
             result = PlanResult(features,paths,diagnostics,minimum,collision,completed_ns=clock_ns(),started_ns=started_ns,
                                 navigation=navigation,decision=decision)
-            return self._rank_warning_fallback(result, start, pending, low, high, bodies, damaging)
+            return self._finish_plan(result, start, pending, low, high, bullets, velocity,
+                                     radii, uncertainty, bodies, damaging)
         hint_positions = np.concatenate((bullets, bodies.positions))
         hint_velocity = np.concatenate((velocity, bodies.velocity))
         hint_radii = np.concatenate((radii, np.linalg.norm(bodies.half_extents, axis=1)+bodies.player_radius))
@@ -627,7 +736,6 @@ class RollingPlanner:
         safe = np.isinf(collision) & timing_free & timing_complete
         allowed = safe & ~root_blocked
         fallback = not bool(allowed.any())
-        known = state.known_motion[relevant] & state.known_geometry[relevant]
         confirmed_bullets,confirmed_velocity,confirmed_radii = bullets[known],velocity[known],radii[known]
         body_known = bodies.known_motion & bodies.known_geometry & damaging
         # Warning lasers remain robust planning obstacles, but are not evidence
@@ -733,4 +841,5 @@ class RollingPlanner:
                 "predicted_collision_tick": float(collision[best]) if np.isfinite(collision[best]) else None,
                 "elapsed_ms": round(elapsed_ms, 3)}, minimum, collision,
                 completed_ns=clock_ns(), started_ns=started_ns,navigation=navigation,decision=decision)
-        return self._rank_warning_fallback(result, start, pending, low, high, bodies, damaging)
+        return self._finish_plan(result, start, pending, low, high, bullets, velocity,
+                                 radii, uncertainty, bodies, damaging)

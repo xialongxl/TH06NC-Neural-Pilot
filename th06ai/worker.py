@@ -11,7 +11,7 @@ import traceback
 from pathlib import Path
 from dataclasses import replace
 
-from .config import ROOT, SafetyConfig, load_config
+from .config import PROFILE_KINDS, ROOT, SafetyConfig, load_config
 from .files import atomic_json, read_json, timestamp
 from .lease import SharedLease, LeaseBusy
 from .control import FinishTraining, SamplingInterrupted
@@ -210,7 +210,7 @@ def main():
     parser.add_argument("--model")
     parser.add_argument('--goal',choices=['survival','nmnb'])
     parser.add_argument('--game-setup')
-    parser.add_argument('--profile-kind',choices=['inference','latency'],default='inference')
+    parser.add_argument('--profile-kind',choices=PROFILE_KINDS,default='inference')
     parser.add_argument('--profile-wait-combat',action='store_true')
     parser.add_argument("--lease-name", required=True)
     args = parser.parse_args()
@@ -250,6 +250,9 @@ def main():
             if args.profile_kind=='latency':
                 from .profile_latency import profile_latency
                 profile_latency(config,run_dir,args.model,heartbeat,wait_for_combat=args.profile_wait_combat)
+            elif args.profile_kind=='readback':
+                from .profile_inference import profile_readback
+                profile_readback(config, run_dir, args.model, heartbeat.update, heartbeat.lease)
             else:
                 from .profile_inference import profile_inference
                 profile_inference(config,run_dir,args.model,heartbeat.update,heartbeat.lease)
@@ -282,7 +285,8 @@ def main():
                                                        session_time=heartbeat.session_time)
                 model = load_model(Path(args.model or ROOT / "models" / "latest.zip"), env, config.device)
                 from .inference import PolicyRunner
-                model.decision_runner = PolicyRunner(model.policy, config.inference_backend)
+                model.decision_runner = PolicyRunner(model.policy, config.inference_backend,
+                                                     readback=config.inference_readback)
                 env.pause_for_user()
                 model.decision_runner.warmup(lease=heartbeat.lease)
                 if args.mode == "evaluate":
@@ -294,7 +298,7 @@ def main():
                     while not env.training_control.target_reached:
                         if env.training_control.gate(env):
                             obs = env.builder.build(env.current)
-                        policy_started = clock_ns()
+                        policy_started = env.begin_policy_timing()
                         decision = model.decision_runner.predict(obs,deterministic=True,lease=heartbeat.lease)
                         action = decision.actions[0]
                         env.record_policy_timing(policy_started, clock_ns())

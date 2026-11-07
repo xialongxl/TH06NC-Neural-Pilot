@@ -39,6 +39,7 @@ def action_row(info, steps):
         **{'input_' + key: info.get('input_latency', {}).get(key) for key in ('version', 'observation_started_ns', 'send_started_ns', 'send_completed_ns', 'plan_started_ns', 'plan_completed_ns', 'policy_started_ns', 'policy_completed_ns', 'observation_to_send_ms', 'policy_ms', 'post_plan_to_send_ms', 'send_ms', 'key_switch_ms', 'input_events', 'game_input_state', 'game_input_match_ms', 'first_motion_observed_ms', 'observed_game_input_bits', 'observation_build_ms', 'next_observation_build_ms', 'read_total_ms', 'observation_to_send_p95_ms', 'policy_p95_ms', 'send_p95_ms', 'observation_native_tick', 'game_input_match_tick', 'post_plan_to_input_ms')},
         'input_pre_policy_work': info.get('input_latency', {}).get('pre_policy_work', {}),
         'input_read_breakdown': info.get('input_latency', {}).get('read_breakdown', {}),
+        'input_thread_timing': info.get('input_latency', {}).get('thread_timing'),
         'game_settings': info.get('game_settings'),
         'native_tick_before': info.get('native_tick_before'),
         'native_tick_delta': info.get('native_tick_delta'),
@@ -105,6 +106,9 @@ def action_row(info, steps):
         'item_potential': info.get('behavior', {}).get('item_potential'),
         'reward_version': REWARD_VERSION,
         **{'reward_' + name: value for (name, value) in info.get('reward_components', {}).items()},
+        'planner_contact_priority': info.get('planning', {}).get('contact_priority'),
+        'planner_warning_exit_priority': info.get('planning', {}).get('warning_exit_priority'),
+        'planner_bottom_escape_priority': info.get('planning', {}).get('bottom_escape_priority'),
     }
 
 

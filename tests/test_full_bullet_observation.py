@@ -58,6 +58,12 @@ def test_every_visible_pool_bullet_reaches_network_with_near_branch_unchanged(co
     assert np.allclose(observation["bullets"][:len(nearest), 2:4], full[nearest, 2:4])
 
 
+def test_near_branch_keeps_unclipped_coordinates_when_full_field_is_clipped():
+    observation = ObservationBuilder().build(scene([[0, 192 + 3 * 384, 320]]))
+    assert observation["bullets"][0, 0] == 3
+    assert observation["full_bullets"][0, 0] == 2
+
+
 def test_far_incoming_65th_bullet_breaks_previously_identical_inputs():
     before_left, after_left = incoming_scene(-1)
     before_right, after_right = incoming_scene(1)

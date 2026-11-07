@@ -259,6 +259,13 @@ class TrainingCallback(BaseCallback):
             runner.warmup(observation, self.lease)
         if self.model.device.type == "cuda":
             torch.cuda.synchronize()
+        if self.diagnostics_config.readback_ab:
+            if runner is not None and runner.engine == 'cuda_graph':
+                from .inference import LiveReadbackTrial
+                runner.readback_trial = LiveReadbackTrial()
+                self.status(readback_ab='ready')
+            else:
+                self.status(readback_ab='unavailable')
         self.status(phase=msg('backend.neural_network_training'), message=msg('backend.ppo_collect_samples_pause_the_game_update'),
                     device=str(self.model.device), reward_version=REWARD_VERSION,
                     observation_version=OBSERVATION_VERSION, action_timing_version=ACTION_TIMING_VERSION,
@@ -491,7 +498,7 @@ def train(config: Config, env, run_dir: Path, minutes: float, status, lease, res
     model.game_setup = config.game_setup.to_dict() if config.game_setup else None
     model.training_goal = config.goal
     from .inference import PolicyRunner
-    model.decision_runner = PolicyRunner(model.policy, config.inference_backend)
+    model.decision_runner = PolicyRunner(model.policy, config.inference_backend, readback=config.inference_readback)
     control = TrainingControl(run_dir, lease, status, budget_seconds=minutes * 60, session_time=session_time)
     env.training_control = control
     model.training_control, model.training_game = control, env
@@ -539,7 +546,7 @@ def evaluate(model, env, run_dir: Path, status, lease, episodes=10):
                 obs = env.builder.build(env.current)
             if progress.observe(getattr(env, 'current', None)):
                 status(evaluation_round=progress.report())
-            policy_started = clock_ns()
+            policy_started = getattr(env, 'begin_policy_timing', clock_ns)()
             runner = getattr(model,'decision_runner',None)
             if runner is not None:
                 decision = runner.predict(obs,deterministic=True,lease=lease)

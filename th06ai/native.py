@@ -12,6 +12,7 @@ import struct
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from .combat import ENEMY_POOL, ENEMY_CAPACITY, ENEMY_STRIDE, BOSS_POINTERS, decode_enemies, decode_enemy_bodies
@@ -20,6 +21,9 @@ from .lasers import LASER_START,LASER_CAPACITY,LASER_STRIDE,decode_lasers
 from .stage import STAGE_RVA, decode_stage
 from .game_settings import (DIFFICULTY_RVA, CHARACTER_RVA, PRACTICE_UNLOCK_RVA,
                             decode_identity, movement_speeds)
+
+if TYPE_CHECKING:
+    from .thread_profile import ThreadMark
 
 SHA256 = "48630a42a2eb6762d0db2a7e0d151203efbe67220fef7d2f9d0d51857928ac82"
 BUILD_ID = "25306795"
@@ -198,6 +202,7 @@ class Frame:
     game_mode: str | None = None
     movement_speeds: tuple[float, float] | None = None
     capture_metrics: dict = field(default_factory=dict)
+    capture_thread_marks: tuple[ThreadMark, ThreadMark | None] | None = None
 
 
 @dataclass
@@ -349,6 +354,8 @@ class GameReader:
 
     def read(self) -> Frame:
         started_ns, observed_at = clock_ns(), time.monotonic()
+        profile = getattr(self, 'thread_profile', None)
+        thread_started = profile.mark() if profile is not None else None
         p = self._capture()
         # Optional diagnostic read. Failure here must not create a new STOP
         # condition or invalidate an otherwise valid gameplay snapshot.
@@ -377,7 +384,7 @@ class GameReader:
         active = p.active(self.process.base)
         if not active:
             return self._complete_frame(Frame(0, x, y, state, focused, bool(paused), np.empty((0, 3), np.float32),
-                         bounds, False, observed_at), started_ns, input_bits, input_observed_ns)
+                         bounds, False, observed_at), started_ns, input_bits, input_observed_ns, thread_started)
         manager = BULLET_MANAGER
         if not (100 <= bounds[2] <= 1500 and 100 <= bounds[3] <= 1500):
             raise RuntimeError(msg('backend.the_playfield_dimensions_failed_validation'))
@@ -434,9 +441,9 @@ class GameReader:
                 struct.unpack_from('<i', context)[0], *char, flags[4], flags[5], context[4])
         except (OSError, RuntimeError, ValueError, struct.error):
             pass  # Identity is unknown, not a new empty-bullet / cross-tick STOP.
-        return self._complete_frame(frame, started_ns, input_bits, input_observed_ns)
+        return self._complete_frame(frame, started_ns, input_bits, input_observed_ns, thread_started)
 
-    def _complete_frame(self, frame, started_ns, input_bits, input_observed_ns):
+    def _complete_frame(self, frame, started_ns, input_bits, input_observed_ns, thread_started=None):
         from .game_phase import classify
         phase_started = clock_ns()
         self.snapshot_diagnostics['decode_ms'] = max(0., (phase_started-started_ns)/1e6-
@@ -497,6 +504,8 @@ class GameReader:
             frame.movement_speeds = None
         frame.capture_started_ns = started_ns
         frame.capture_finished_ns = clock_ns()
+        if thread_started is not None:
+            frame.capture_thread_marks = thread_started, self.thread_profile.mark()
         frame.input_bits, frame.input_observed_ns = input_bits, input_observed_ns
         self.snapshot_diagnostics['total_elapsed_ms'] = round((frame.capture_finished_ns-started_ns)/1e6, 3)
         self.snapshot_diagnostics['input_observed'] = input_bits is not None

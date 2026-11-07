@@ -6,6 +6,7 @@
   "device": "cuda",
   "input_backend": "auto",
   "inference_backend": "auto",
+  "inference_readback": "auto",
   "capture_backend": "auto",
   "goal": "survival",
   "game_setup": {
@@ -33,6 +34,8 @@
     "trajectory": "full",
     "trajectory_every_rollouts": 1,
     "compression_level": 1,
-    "checkpoint_every_rollouts": 1
+    "checkpoint_every_rollouts": 1,
+    "thread_profile_steps": 0,
+    "readback_ab": false
   }
 }

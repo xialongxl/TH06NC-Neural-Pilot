@@ -62,6 +62,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | [web_console.py](../../th06ai/web_console.py) | Loopback routes, schemas, Origin and token checks, SSE, and static files. |
 | [console_service.py](../../th06ai/console_service.py) | Explicit session operations, checkpoint IDs, local state, and logs. |
 | [console_stream.py](../../th06ai/console_stream.py) | Shared sampling, display DTO, deltas, backpressure, and curve cursors. |
+| [console_performance.py](../../th06ai/console_performance.py) | On-demand system and busiest-processor CPU readings for Performance Monitor. |
 | [battle_view.py](../../th06ai/battle_view.py) | Opt-in battle stream, latest-only slot, and diagnostic scene encoding. |
 | [dashboard.py](../../th06ai/dashboard.py) | Legacy Tk console using the same CLI and protection path. |
 
@@ -118,6 +119,7 @@ The product is TH06NC-Neural-Pilot. The Python import and CLI package is `th06ai
 | [environment.py](../../th06ai/environment.py) | Game state machine, reset/step, actions, timing, rewards, and boundaries. |
 | [control.py](../../th06ai/control.py) | Cooperative PAUSE/FOCUS/FINISH and sampling interruption. |
 | [input_timing.py](../../th06ai/input_timing.py) | Host timeline, observed movement-bit match, and recent percentiles. |
+| [thread_profile.py](../../th06ai/thread_profile.py) | Optional same-action control-thread counters and offline report. |
 | [pausable_ppo.py](../../th06ai/pausable_ppo.py) | Single-environment rollout gate, real transitions, and boundary bootstrap. |
 | [ppo_update.py](../../th06ai/ppo_update.py) | ResourcePolicy PPO update and exploration objective. |
 | [learning.py](../../th06ai/learning.py) | Build, load, migrate, save, train, and evaluate a policy. |

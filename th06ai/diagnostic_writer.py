@@ -12,7 +12,7 @@ import threading
 import time
 import zipfile
 
-from .battle_view import BattleViewPublisher, publish_battle_view
+from .battle_view import BattleViewPublisher, publish_battle_commentary, publish_battle_view
 
 
 def write_npz(path, payload, compression_level=1):
@@ -82,9 +82,17 @@ class DiagnosticWriter:
             if job[0] == 'trace':self.pending_traces += 1
             return True
 
+    def _write_job(self, job):
+        # Only the private CPU child reads this pipe. HTTP and files never supply its pickle input.
+        pickle.dump(job, self.process.stdin, protocol=5)
+        self.process.stdin.flush()
+
     def _send(self):
         try:
             while not self.sender_stop.is_set():
+                commentary = self.battle_view.next_commentary_job()
+                if commentary is not None:
+                    self._write_job(commentary)
                 queued = True
                 try:
                     job = self.jobs.get_nowait()
@@ -102,10 +110,11 @@ class DiagnosticWriter:
                     else:
                         queued = False
                 try:
-                    # Only this process creates the pipe and its writer. Never
-                    # deserialize pickle from HTTP, model metadata or disk here.
-                    pickle.dump(job, self.process.stdin, protocol=5)
-                    self.process.stdin.flush()
+                    if job[0] == 'close':
+                        commentary = self.battle_view.next_commentary_job(force=True)
+                        if commentary is not None:
+                            self._write_job(commentary)
+                    self._write_job(job)
                 finally:
                     if queued:self.jobs.task_done()
                 if job[0] == 'close':break
@@ -188,6 +197,12 @@ def writer_main(root):
             except (OSError, ValueError, TypeError, IndexError):
                 pass  # Best-effort live frame, independent of retained diagnostics.
             print('{"kind":"battle_view"}', flush=True)
+            continue
+        if kind == 'battle_commentary':
+            try:
+                publish_battle_commentary(sink.root, job[1])
+            except (OSError, ValueError, TypeError):
+                pass  # Live commentary is independent of retained diagnostics.
             continue
         started = time.perf_counter_ns()
         try:

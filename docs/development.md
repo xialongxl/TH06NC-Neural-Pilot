@@ -62,6 +62,7 @@ CUDA wheel 下载体积较大，缓存会同时出现分片和拼接文件。存
 | `device` | cuda 或 cpu | CUDA 不可用时不静默降级 |
 | `input_backend` | dataclass 默认 python；示例 auto | 普通模拟输入实现选择 |
 | `inference_backend` | auto / eager / cuda_graph | auto 只针对图捕获限制回退 CUDA eager |
+| `inference_readback` | auto / synchronous，默认 auto | CUDA Graph 默认使用阻塞事件回读。CUDA eager 和 CPU 使用同步回读。设为 synchronous 可在下一次会话恢复原回读方式 |
 | `capture_backend` | auto / python / rust，默认 auto | auto 保留复用的大块缓冲，仅对小块状态做可用的 Rust 合并；rust 显式启用全批量拥有型路径 |
 | `goal` | survival / nmnb | NMNB 禁 B；不是通关认证 |
 | `game_setup` | 可选对象 | mode／difficulty／character／stage；控制台启动请求可明确指定本次设置 |
@@ -235,6 +236,7 @@ Vite `/api` 代理固定默认后端 18765。后端 CLI 改端口时要同步代
 | GET /api/health | 服务名、项目身份、preview、PID |
 | GET /api/bootstrap?state=false | token、protocol；省略 state 参数可附初始完整状态 |
 | GET /api/state | 原始完整诊断 |
+| GET /api/performance | 性能监控页按需读取整机 CPU，多个标签页共享最多每秒一次的系统采样 |
 | GET /api/events?protocol=2&hidden=false | 共享增量 SSE |
 | GET /api/logs | 有界日志尾，支持 ETag/304 |
 | POST /api/models/select | `{model_id}` |

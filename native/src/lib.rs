@@ -10,7 +10,7 @@ fn plan_bytes<'py>(py:Python<'py>,data:&[u8],m:usize,k:usize,q:usize,delay:f32,l
         durations:Vec<f32>,delays:Vec<f32>,complete:bool,beam:usize,branches:usize,fast:f32,age:f64)
         ->PyResult<(Bound<'py,PyBytes>,Vec<f64>)> {
     if m>4096 || k>4096 || q>32 || !(1..=4).contains(&beam) || !(3..=18).contains(&branches)
-        || durations.is_empty() || durations.len()>4 || delays.is_empty() || delays.len()>12
+        || durations.is_empty() || durations.len()>planner::MAX_SEGMENTS || delays.is_empty() || delays.len()>12
         || data.len()!=8*(88+7*m+9*k+5*q) {
         return Err(PyValueError::new_err("planner shape or budget mismatch"));
     }
@@ -59,6 +59,8 @@ fn sweep(data: &[f32], n:usize,m:usize,_k:usize,player_radius:f32)->Vec<f32> {
     let durations=&data[4*n..5*n];let ticks=&data[5*n..6*n];
     let low=&data[6*n..6*n+2];let high=&data[6*n+2..6*n+4];
     let circles=&data[6*n+4..6*n+4+6*m];let bodies=&data[6*n+4+6*m..];
+    // Each obstacle keeps the same orientation across all candidate segments in this sweep.
+    let rotations: Vec<_> = bodies.chunks_exact(8).map(|b| b[7].sin_cos()).collect();
     let mut out=Vec::with_capacity(5*n);
     for row in 0..n {
         let start=[starts[2*row],starts[2*row+1]];let vel=[velocities[2*row],velocities[2*row+1]];
@@ -85,13 +87,27 @@ fn sweep(data: &[f32], n:usize,m:usize,_k:usize,player_radius:f32)->Vec<f32> {
                 // overflow/subnormal handling to every candidate/obstacle pair.
                 let near=[r[0]+v[0]*t,r[1]+v[1]*t];
                 minimum=minimum.min((near[0]*near[0]+near[1]*near[1]).sqrt()-radius);
-                let d=dot*dot-a*c;let entry=(-dot-d.max(0.).sqrt())/a.max(1e-12);
-                let hit=if c<=0. {0.} else if a>1e-12 && d>=0. && entry>=0. && entry<=length {entry} else {f32::INFINITY};
+                let hit = if c <= 0. {
+                    0.
+                } else if a > 1e-12 {
+                    let discriminant = dot * dot - a * c;
+                    if discriminant >= 0. {
+                        let entry = (-dot - discriminant.max(0.).sqrt()) / a;
+                        if entry >= 0. && entry <= length {
+                            entry
+                        } else {
+                            f32::INFINITY
+                        }
+                    } else {
+                        f32::INFINITY
+                    }
+                } else {
+                    f32::INFINITY
+                };
                 collision=collision.min(absolute+hit);
             }
-            for b in bodies.chunks_exact(8) {
+            for (b, &(s, c)) in bodies.chunks_exact(8).zip(&rotations) {
                 let r0=[b[0]+b[2]*absolute-p[0],b[1]+b[3]*absolute-p[1]];let v0=[b[2]-pv[0],b[3]-pv[1]];
-                let (s,c)=b[7].sin_cos();
                 let r=[r0[0]*c+r0[1]*s,-r0[0]*s+r0[1]*c];let v=[v0[0]*c+v0[1]*s,-v0[0]*s+v0[1]*c];
                 let padding=player_radius+2.+b[6]*absolute_end;
                 let (clear,entry)=rectangle(r,v,[b[4]+padding,b[5]+padding],length);
